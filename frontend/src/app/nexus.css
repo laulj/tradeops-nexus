@@ -1,0 +1,259 @@
+/* ── Nexus app surfaces ─────────────────────────────────────────────────────
+   The authenticated shell reuses the landing page's glass language. Every class
+   below is theme-aware via the `light` / `dark-theme` classes that App.tsx and
+   AppShell put on <body>, so the same class names work in both themes.
+
+   NOTE ON SPECIFICITY: AntD injects its CSS-in-JS into <head> at runtime, after
+   Tailwind's stylesheet, so for equal specificity AntD wins on source order.
+   Custom (unlayered) classes declared here therefore DO apply to AntD-rendered
+   DOM only when they are distinct property/selector combos; for Tailwind
+   utilities applied to AntD elements, use the `!` important prefix. */
+
+/* Card / panel surface */
+.nexus-glass {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0.02) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.07),
+        0 24px 60px -28px rgba(0, 0, 0, 0.9);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+body.light .nexus-glass {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.9),
+        0 18px 40px -30px rgba(15, 23, 42, 0.4);
+}
+
+/* Nested tile inside a panel */
+.nexus-tile {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+body.light .nexus-tile {
+    background: linear-gradient(180deg, #ffffff 0%, #f5f8fb 100%);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+/* Hairline divider */
+.nexus-hairline {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+body.light .nexus-hairline {
+    border-top-color: rgba(15, 23, 42, 0.07);
+}
+
+/* Segmented pill control (gold active segment, like the landing desks) */
+.nexus-pill {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+}
+body.light .nexus-pill {
+    border-color: rgba(15, 23, 42, 0.1);
+    background: rgba(15, 23, 42, 0.03);
+}
+.nexus-pill-btn {
+    border: 0;
+    cursor: pointer;
+    border-radius: 9999px;
+    padding: 0.25rem 0.85rem;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: #a0aec0;
+    background: transparent;
+    transition:
+        color 0.15s ease,
+        background 0.15s ease;
+    white-space: nowrap;
+}
+body.light .nexus-pill-btn {
+    color: #64748b;
+}
+.nexus-pill-btn:hover {
+    color: #e5e7eb;
+}
+body.light .nexus-pill-btn:hover {
+    color: #0f172a;
+}
+.nexus-pill-btn[data-active="true"] {
+    background: linear-gradient(to bottom, #f6dfae, #e6b85c);
+    color: #170f02;
+    font-weight: 600;
+}
+
+/* Tone tags */
+.nexus-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    line-height: 1.4;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+.nexus-tag--earn {
+    background: rgba(52, 211, 153, 0.1);
+    color: #34d399;
+    border-color: rgba(52, 211, 153, 0.22);
+}
+.nexus-tag--pay {
+    background: rgba(248, 113, 113, 0.1);
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.22);
+}
+.nexus-tag--gold {
+    background: rgba(230, 184, 92, 0.1);
+    color: #e6b85c;
+    border-color: rgba(230, 184, 92, 0.26);
+}
+.nexus-tag--sky {
+    background: rgba(56, 189, 248, 0.1);
+    color: #38bdf8;
+    border-color: rgba(56, 189, 248, 0.26);
+}
+.nexus-tag--indigo {
+    background: rgba(109, 124, 242, 0.12);
+    color: #a5b4fc;
+    border-color: rgba(109, 124, 242, 0.3);
+}
+.nexus-tag--muted {
+    background: rgba(255, 255, 255, 0.04);
+    color: #a0aec0;
+    border-color: rgba(255, 255, 255, 0.1);
+}
+body.light .nexus-tag--earn {
+    color: #047857;
+}
+body.light .nexus-tag--pay {
+    color: #b91c1c;
+}
+body.light .nexus-tag--gold {
+    color: #92400e;
+}
+body.light .nexus-tag--sky {
+    color: #0369a1;
+}
+body.light .nexus-tag--indigo {
+    color: #4338ca;
+}
+body.light .nexus-tag--muted {
+    color: #475569;
+    background: rgba(15, 23, 42, 0.04);
+    border-color: rgba(15, 23, 42, 0.1);
+}
+
+/* Metric value tones (theme-aware so both light and dark stay legible) */
+.nexus-metric--positive {
+    color: #34d399;
+}
+.nexus-metric--negative {
+    color: #f87171;
+}
+.nexus-metric--gold {
+    color: #e6b85c;
+}
+.nexus-metric--neutral {
+    color: #e9f0f4;
+}
+body.light .nexus-metric--positive {
+    color: #047857;
+}
+body.light .nexus-metric--negative {
+    color: #b91c1c;
+}
+body.light .nexus-metric--gold {
+    color: #b45309;
+}
+body.light .nexus-metric--neutral {
+    color: #0f172a;
+}
+
+/* Live pulse dot */
+@keyframes nexus-ping {
+    0% {
+        transform: scale(0.9);
+        opacity: 0.9;
+    }
+    70% {
+        transform: scale(2.6);
+        opacity: 0;
+    }
+    100% {
+        transform: scale(2.6);
+        opacity: 0;
+    }
+}
+.nexus-ping {
+    animation: nexus-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Shell: left-aligned content, and strip the global #root viewport frame */
+.nexus-shell {
+    text-align: left;
+}
+#root:has(.nexus-shell) {
+    border-inline: 0;
+    text-align: left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nexus-ping {
+        animation: none;
+    }
+}
+
+/* ── Sidebar (nav rail) ─────────────────────────────────────────────────────
+   Layout-only chrome for the AntD Sider. Colours come from Menu/Layout tokens;
+   this file only handles the rail frame, the flex column and the bottom dock. */
+.nexus-sider {
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+}
+body.light .nexus-sider {
+    border-right-color: rgba(15, 23, 42, 0.08);
+}
+
+.nexus-sider-inner {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+.nexus-sider-top {
+    padding: 18px 16px 6px;
+}
+.nexus-sider-nav {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.nexus-sider-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    margin-top: auto;
+}
+.nexus-sider-theme {
+    display: flex;
+    justify-content: center;
+}
+
+/* Collapsed rail: centre the brand mark and tidy the foot padding */
+.nexus-sider.is-collapsed .nexus-sider-top {
+    padding: 18px 10px 6px;
+    text-align: center;
+}
+.nexus-sider.is-collapsed .nexus-sider-foot {
+    padding: 12px 8px;
+}

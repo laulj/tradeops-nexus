@@ -1,0 +1,101 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+jobs:
+    frontend:
+        name: frontend (lint, typecheck, test, build)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: frontend
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11.24.0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+                  cache-dependency-path: frontend/pnpm-lock.yaml
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Lint
+              run: pnpm lint
+
+            - name: Build (typecheck + bundle)
+              run: pnpm build
+
+            - name: Test
+              run: pnpm test
+
+    backend:
+        name: backend (build)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: backend
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11.24.0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+                  cache-dependency-path: backend/pnpm-lock.yaml
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build
+              run: pnpm build
+
+            - name: Test
+              run: pnpm test
+
+    # ── Deploy (CD) ──────────────────────────────────────────────────────────
+    # Wire this up once the hosting target is decided (e.g. Render, Netlify,
+    # Vercel, or GitHub Pages). Example for GitHub Pages + Vite:
+    #
+    # deploy:
+    #   name: deploy (frontend)
+    #   needs: [frontend, backend]
+    #   if: github.ref == 'refs/heads/main'
+    #   runs-on: ubuntu-latest
+    #   permissions:
+    #     contents: read
+    #     pages: write
+    #     id-token: write
+    #   steps:
+    #     - uses: actions/checkout@v4
+    #     - uses: pnpm/action-setup@v4
+    #       with: { version: 11.24.0 }
+    #     - uses: actions/setup-node@v4
+    #       with: { node-version: 22, cache: pnpm, cache-dependency-path: frontend/pnpm-lock.yaml }
+    #     - run: pnpm install --frozen-lockfile
+    #       working-directory: frontend
+    #     - run: pnpm build
+    #       working-directory: frontend
+    #       env:
+    #         VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+    #     - uses: actions/upload-pages-artifact@v3
+    #       with: { path: frontend/dist }
+    #     - uses: actions/deploy-pages@v4

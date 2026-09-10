@@ -1,0 +1,6 @@
+# TradeOps Nexus
+
+> TradeOps Nexus is a trading strategy monitoring dashboard. It tracks spot, perpetual futures, and funding rate profits across multiple exchanges and wallet addresses, with real-time dashboards and interactive charts.
+
+## App
+- [TradeOps Nexus](http://localhost:5173/)

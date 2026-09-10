@@ -1,0 +1,5 @@
+# pnpm workspace settings for the backend package
+# Allow the sqlite3 native module to run its postinstall build script
+# (downloads/compiles node_sqlite3.node).
+allowBuilds:
+  sqlite3: true

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+# databases are created automatically at runtime — never commit them
+db/*
+!db/.gitkeep
+
+secret.key
+*.log
