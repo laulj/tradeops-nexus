@@ -610,6 +610,10 @@ export const downloadDatabase = async () => {
     const queryUrl = baseUrl
     const token = localStorage.getItem("accessToken")
     if (!token) return
+    // Exporting the raw SQLite files is admin-only. This is a UI guard only — the
+    // API enforces it as well (requireAdmin answers 403), so a forged localStorage
+    // value still cannot download anything.
+    if (localStorage.getItem("username") !== "admin") return
 
     try {
         fetch(queryUrl + "data/export", {

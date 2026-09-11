@@ -26,7 +26,7 @@ import {
 } from "./utils"
 import { randomUUID } from "crypto"
 import { profitIntervalType } from "."
-// import { authenticateMiddleware } from "./middleware"
+import { requireAdmin } from "./guards"
 const CACHE_KEY_TYPE: "spotFuture" = "spotFuture"
 export const spotFutureDataRouter = express.Router()
 
@@ -1054,19 +1054,18 @@ spotFutureDataRouter.get("/symbols", async (req: Request, res: Response) => {
         return res.status(500).send("Failed to fetch symbols")
     }
 })
-spotFutureDataRouter.post("/export", function (req: Request, res: Response) {
-    const options = {
-        root: path.join(path.dirname(__dirname) + "/db"),
-    }
-
-    const fileName = "spotFuture.db"
+spotFutureDataRouter.post("/export", requireAdmin, function (req: Request, res: Response) {
+    // Mirror middleware.ts resolution so the export follows a custom
+    // SPOT_FUTURE_DB_PATH (e.g. a persistent volume).
+    const dbPath = process.env.SPOT_FUTURE_DB_PATH || "./db/spotFuture.db"
 
     try {
-        res.status(201).download(options.root + "/" + fileName, function (err) {
+        res.status(201).download(dbPath, function (err) {
             if (err) {
                 console.error("Error sending file:", err)
+                if (!res.headersSent) res.status(404).json({ error: "Database file not found" })
             } else {
-                console.log("Sent:", options, fileName)
+                console.log("Sent:", dbPath)
             }
         })
     } catch (err: any) {

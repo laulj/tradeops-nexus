@@ -12,6 +12,7 @@ import {
 } from "./database"
 import { insertAddressIfNotExists } from "./databaseRouter"
 import { randomUUID } from "crypto"
+import { requireAdmin } from "./guards"
 import {
     aggCache,
     determineFRExchangesData,
@@ -4903,19 +4904,18 @@ fundingRateDataRouter.get("/symbols", async (req: Request, res: Response) => {
     }
 })
 
-fundingRateDataRouter.post("/export", function (req: Request, res: Response) {
-    const options = {
-        root: path.join(path.dirname(__dirname) + "/db"),
-    }
-
-    const fileName = "fRate.db"
+fundingRateDataRouter.post("/export", requireAdmin, function (req: Request, res: Response) {
+    // Mirror middleware.ts resolution so the export follows a custom
+    // FUNDING_RATE_DB_PATH (e.g. a persistent volume).
+    const dbPath = process.env.FUNDING_RATE_DB_PATH || "./db/fRate.db"
 
     try {
-        res.status(201).download(options.root + "/" + fileName, function (err) {
+        res.status(201).download(dbPath, function (err) {
             if (err) {
                 console.error("Error sending file:", err)
+                if (!res.headersSent) res.status(404).json({ error: "Database file not found" })
             } else {
-                console.log("Sent:", options, fileName)
+                console.log("Sent:", dbPath)
             }
         })
     } catch (err: any) {

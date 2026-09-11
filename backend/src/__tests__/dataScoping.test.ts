@@ -69,3 +69,36 @@ describe("demo data scoping", () => {
         expect(delAdmin.status).toBe(400)
     })
 })
+
+// ── Admin-only raw database export ─────────────────────────────────────────
+// The export routes must (a) reject non-admins and (b) serve the database at the
+// configured *_DB_PATH rather than a hardcoded <backend>/db file.
+const sqliteBinaryParser = (res: any, cb: (err: Error | null, body?: Buffer) => void) => {
+    res.setEncoding("binary")
+    let data = ""
+    res.on("data", (chunk: string) => (data += chunk))
+    res.on("end", () => cb(null, Buffer.from(data, "binary")))
+}
+
+describe("admin-only database export", () => {
+    it("forbids non-admins from exporting any database", async () => {
+        const { body } = await registerUser(app, "exporter", "pw1")
+        for (const route of ["/data/export", "/data/spotFuture/export", "/data/fRate/export"]) {
+            const res = await request(app).post(route).set("Authorization", `Bearer ${body.accessToken}`)
+            expect(res.status, route).toBe(403)
+        }
+    })
+
+    it("serves the admin the database at TX_DB_PATH, not a hardcoded path", async () => {
+        const { body } = await loginUser(app, "admin", ADMIN_PASSWORD)
+        const res = await request(app)
+            .post("/data/export")
+            .set("Authorization", `Bearer ${body.accessToken}`)
+            .buffer(true)
+            .parse(sqliteBinaryParser)
+        expect(res.status).toBe(201)
+        expect(String(res.headers["content-disposition"])).toContain("tx.db")
+        // SQLite magic header: proves the temp-dir DB (TX_DB_PATH) is what was sent.
+        expect((res.body as Buffer).subarray(0, 15).toString("utf8")).toBe("SQLite format 3")
+    })
+})

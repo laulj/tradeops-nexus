@@ -1,9 +1,10 @@
 import path from "path"
 import cors from "cors"
 import { readFile, writeFile } from "fs/promises"
-import express, { Express, Request, RequestHandler, Response, NextFunction } from "express"
+import express, { Express, Request, Response, NextFunction } from "express"
 import { bytesToHex, equalsBytes } from "ethereum-cryptography/utils"
 import { authenticateMiddleware, initMiddleware } from "./middleware"
+import { requireAdmin } from "./guards"
 import { getUser, createUser, listUsers } from "./database"
 import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS } from "./demoData"
 import { dataRouter } from "./databaseRouter"
@@ -317,10 +318,7 @@ app.post("/register", async (req: Request, res: Response) => {
 })
 
 // ─── ADMIN: user management ─────────────────────────────────────────────────
-const requireAdmin: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
-    if (req.user !== "admin") return res.status(403).json({ error: "Admin access required" })
-    next()
-}
+// `requireAdmin` lives in ./guards so the data routers can reuse it.
 
 // List all registered users (username, created_at, demo_populated).
 app.get("/users", authenticateMiddleware, requireAdmin, async (_req: Request, res: Response) => {

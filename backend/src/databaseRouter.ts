@@ -1,8 +1,8 @@
-import path from "path"
 import express, { Request, Response, NextFunction } from "express"
 import { Database } from "sqlite"
 import { convertType, database, type data, type TokenTxData, type TxsData, type TypedTxsData } from "./database"
 import { authenticateMiddleware } from "./middleware"
+import { requireAdmin } from "./guards"
 import { spotFutureDataRouter } from "./futureDatabaseRouter"
 import { balanceResponse, profitIntervalType } from "."
 import { bytesToUtf8, hexToBytes, toHex } from "ethereum-cryptography/utils"
@@ -999,17 +999,17 @@ dataRouter.get("/addresses", async (req: Request, res: Response) => {
     }
 })
 
-dataRouter.post("/export", function (req: Request, res: Response) {
-    const options = {
-        root: path.join(path.dirname(__dirname) + "/db"),
-    }
-    const fileName = "tx.db"
+dataRouter.post("/export", requireAdmin, function (req: Request, res: Response) {
+    // Mirror middleware.ts resolution so the export follows a custom TX_DB_PATH
+    // (e.g. a persistent volume) instead of always reading <backend>/db/tx.db.
+    const dbPath = process.env.TX_DB_PATH || "./db/tx.db"
     try {
-        res.status(201).download(options.root + "/" + fileName, function (err) {
+        res.status(201).download(dbPath, function (err) {
             if (err) {
                 console.error("Error sending file:", err)
+                if (!res.headersSent) res.status(404).json({ error: "Database file not found" })
             } else {
-                console.log("Sent:", options, fileName)
+                console.log("Sent:", dbPath)
             }
         })
     } catch (err: any) {
