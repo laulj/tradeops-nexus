@@ -66,7 +66,7 @@ pnpm --dir frontend build && pnpm --dir backend build && pnpm --dir backend star
 
 1. Choose **Create an account**.
 2. Tick **Populate with demo data**.
-3. Sign in — the dashboard, spread tables and position views are already populated with roughly 60 days of plausible spot, perp-futures and funding-rate history for that account.
+3. Sign in — the dashboard, spread tables and position views are already populated with about three years of plausible spot, perp-futures and funding-rate history for that account: roughly 600 arbitrage round-trips, weekly balance snapshots and closed positions at a monthly cadence.
 
 Demo symbols: `USDC`, `ETH`, `BTC`, `SOL`, `ARB`, `WIF`, `TIA`, `TSLA`, `NVDA`. The generated data is synthetic — **no exchange API keys and no live credentials are involved.**
 
@@ -102,6 +102,7 @@ Copy `frontend/.env.example` to `frontend/.env.local` to override the frontend v
 | `TX_DB_PATH` | backend | `./db/tx.db` | Spot database (also holds `users`) |
 | `SPOT_FUTURE_DB_PATH` | backend | `./db/spotFuture.db` | Perp-futures database |
 | `FUNDING_RATE_DB_PATH` | backend | `./db/fRate.db` | Funding-rate database |
+| `DEMO_WINDOW_DAYS` | backend | `1095` | Length of the history seeded for a demo account (3 years) |
 | `VITE_BACKEND_TARGET` | frontend (dev/preview) | `http://localhost:8080` | Proxy target for API calls |
 | `VITE_API_BASE_URL` | frontend (build) | same origin | API origin — only needed when the SPA is hosted separately (see Deployment) |
 | `VITE_ENABLE_QUERY_DEVTOOLS` | frontend (dev) | _off_ | Mount React Query Devtools locally |

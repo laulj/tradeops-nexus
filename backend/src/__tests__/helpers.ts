@@ -35,12 +35,16 @@ export const setDbEnv = (dir: string) => {
     process.env.TX_DB_PATH = path.join(dir, "tx.db")
     process.env.SPOT_FUTURE_DB_PATH = path.join(dir, "spotFuture.db")
     process.env.FUNDING_RATE_DB_PATH = path.join(dir, "fRate.db")
+    // Keep the demo seed small here: the production default is a three-year
+    // history, which would make every request that registers a demo user slow.
+    process.env.DEMO_WINDOW_DAYS = "120"
 }
 
 export const clearDbEnv = () => {
     delete process.env.TX_DB_PATH
     delete process.env.SPOT_FUTURE_DB_PATH
     delete process.env.FUNDING_RATE_DB_PATH
+    delete process.env.DEMO_WINDOW_DAYS
 }
 
 export const removeTempDir = (dir: string) => rmSync(dir, { recursive: true, force: true })
