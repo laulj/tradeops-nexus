@@ -5,7 +5,10 @@ import { normalizePairings } from "./databaseRouter"
 
 export const EXCHANGE_NAME = ["bybit", "gate", "binance", "osm", "inj", "dydx", "hl", "bolt", "suil"] as const
 export type EXCHANGE_NAME = typeof EXCHANGE_NAME
-export const aggCache = new NodeCache({ stdTTL: 30 }) // Cache for 30 seconds
+// Aggregate responses are expensive to build (unpaginated joins plus sorts), so
+// the TTL matches the client's 5-minute React Query staleTime; ingestion writes
+// clear the affected account's entries early (see invalidateUserCache).
+export const aggCache = new NodeCache({ stdTTL: 300 }) // Cache for 5 minutes
 
 export type pairing = {
     baseSymbol: string
@@ -42,8 +45,16 @@ export const generateCacheKey = (params: {
     // 2. Hash it to keep the key short and safe
     const hash = keccak256(utf8ToBytes(rawKey))
     //   crypto.createHash('sha256').update(rawKey).digest('hex');
-    // 3. Add a semantic prefix for easy invalidation/monitoring
-    return `${endpoint}:${hash}`
+    // 3. Add a semantic prefix for easy invalidation/monitoring. The username is
+    // kept in the clear so one account's entries can be dropped precisely.
+    return `${endpoint}:${username}:${hash}`
+}
+
+/** Drop every cached aggregate for one account (used after an ingestion write). */
+export const invalidateUserCache = (username?: string) => {
+    if (!username) return
+    const marker = `:${username}:`
+    for (const key of aggCache.keys()) if (key.includes(marker)) aggCache.del(key)
 }
 export function getGroupByExpression(interval: string, tableName: string) {
     const dateExpr = `datetime(${tableName}.timestamp / 1000, 'unixepoch')`

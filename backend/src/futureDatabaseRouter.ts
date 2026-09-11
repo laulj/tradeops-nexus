@@ -578,6 +578,10 @@ spotFutureDataRouter.post("/profits-details/pairing/batch", async (req: Request,
     const page = Math.max(1, parseInt(req.body.page) || 1)
     const limit = Math.min(500, parseInt(req.body.limit) || 50) 
     const offset = (page - 1) * limit
+    // Callers that only need the size of the result set (the dashboard's
+    // "Total tx." tile) can skip the row query entirely: the total comes from a
+    // standalone COUNT(*), so the join plus the ORDER BY never have to run.
+    const countOnly = req.body.countOnly === true
 
     // ── Timestamp filters (optional) ──────────────────────────────────────
     const timestampBegin = req.body.timestamp_begin // e.g., "2025-01-01 00:00:00" or ISO string
@@ -621,7 +625,7 @@ spotFutureDataRouter.post("/profits-details/pairing/batch", async (req: Request,
         timestampEnd,
     }
     // console.log("params: ", params)
-    const cacheKey = generateCacheKey(params)
+    const cacheKey = generateCacheKey(params) + (countOnly ? ":count" : "")
     const cached = aggCache.get(cacheKey)
     if (cached) console.log("spotFutureDataRouter -- returning cache", cached)
     if (cached) return res.status(200).json(cached)
@@ -699,7 +703,7 @@ spotFutureDataRouter.post("/profits-details/pairing/batch", async (req: Request,
                     `
                 const dataParams = [...whereParams, limit, offset]
                 // console.log("data sql", dataSql, dataParams.length, dataParams)
-                const dataRows = await db.all(dataSql, dataParams)
+                const dataRows = countOnly ? [] : await db.all(dataSql, dataParams)
 
                 // console.log(
                 //     "spotfuture Raw dataRows:",
@@ -794,7 +798,8 @@ spotFutureDataRouter.post("/profits-details/pairing/batch", async (req: Request,
 
     // ── 4. Cache and respond ──────────────────────────────────────────────
     const response = {
-        data: results,
+        // Count-only callers get the totals without the rows they would discard.
+        data: countOnly ? {} : results,
         pagination: {
             current: page,
             pageSize: limit,

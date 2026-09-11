@@ -776,6 +776,36 @@ const ensureUserScopedSchema = async (db: Database, type: "spot" | "spotFuture" 
     await migrateAddUsernameColumn(db)
 }
 
+// Columns the profit/aggregation queries filter, join or sort on. The data tables
+// are created dynamically (one per symbol and per exchange), so each rule is only
+// applied to tables that actually have those columns — and `IF NOT EXISTS` keeps
+// the whole thing idempotent, which makes it safe to run on every boot.
+const INDEX_RULES: { suffix: string; columns: string[] }[] = [
+    { suffix: "user_ts", columns: ["username", "timestamp"] },
+    { suffix: "user_address", columns: ["username", "address"] },
+    { suffix: "user", columns: ["username"] },
+    { suffix: "cex", columns: ["cexId"] },
+    { suffix: "dex", columns: ["dexId"] },
+    { suffix: "opening", columns: ["openingId"] },
+    { suffix: "closing", columns: ["closingId"] },
+    { suffix: "order", columns: ["orderId"] },
+    { suffix: "txhash", columns: ["txHash"] },
+    { suffix: "position", columns: ["positionId"] },
+]
+
+export const ensureIndexes = async (db: Database) => {
+    const tables = (await db.all(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)) as {
+        name: string
+    }[]
+    for (const { name } of tables) {
+        const columns = ((await db.all(`PRAGMA table_info("${name}")`)) as { name: string }[]).map((column) => column.name)
+        for (const { suffix, columns: wanted } of INDEX_RULES) {
+            if (!wanted.every((column) => columns.includes(column))) continue
+            await db.exec(`CREATE INDEX IF NOT EXISTS idx_${name}_${suffix} ON "${name}" (${wanted.join(", ")})`)
+        }
+    }
+}
+
 export const initDatabase = async (filename: string, type: "spot" | "spotFuture" | "fundingRate") => {
     let db: Database | undefined = undefined
     try {
@@ -807,6 +837,10 @@ export const initDatabase = async (filename: string, type: "spot" | "spotFuture"
     // Ensure the multi-user schema: users table (tx.db) + username column on
     // every data table (existing rows inherit DEFAULT 'admin').
     await ensureUserScopedSchema(db, type)
+
+    // Those queries join and sort with a `username` filter, so hand SQLite the
+    // indexes that let it do that without scanning and sorting the whole table.
+    await ensureIndexes(db)
     return db
 }
 

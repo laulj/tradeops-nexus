@@ -7,6 +7,7 @@ import { authenticateMiddleware, initMiddleware } from "./middleware"
 import { requireAdmin } from "./guards"
 import { getUser, createUser, listUsers } from "./database"
 import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS } from "./demoData"
+import { invalidateUserCache } from "./utils"
 import { dataRouter } from "./databaseRouter"
 import { Secret, sign, SignOptions, verify } from "jsonwebtoken"
 import type { StringValue } from "ms"
@@ -479,6 +480,19 @@ app.all("/status/uptime", authenticateMiddleware, async (req: Request, res: Resp
         console.log(err)
         return res.status(500).send(`Failed to query up-time.`)
     }
+})
+
+// Ingestion writes (POST .../update) must not leave the dashboard reading a stale
+// aggregate for the rest of the TTL, so drop that account's entries once the write
+// succeeds. Registered before the routers on purpose: the `finish` handler runs
+// after authenticateMiddleware has populated req.user.
+app.use("/data", (req: Request, res: Response, next: NextFunction) => {
+    if (req.method === "POST" && req.path.includes("update")) {
+        res.on("finish", () => {
+            if (res.statusCode < 400) invalidateUserCache(req.user)
+        })
+    }
+    next()
 })
 
 // Correct Middleware Chaining Order: Middleware runs Left-to-Right

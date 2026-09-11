@@ -4382,7 +4382,11 @@ fundingRateDataRouter.post("/profits-details/pairing/batch", async (req: Request
         // ── Pagination parameters ──────────────────────────────────────────────
         const page = Math.max(1, parseInt(req.body.page) || 1)
         const limit = Math.min(100, parseInt(req.body.limit) || 50)
-        const offset = (page - 1) * limit
+    const offset = (page - 1) * limit
+        // Callers that only need the size of the result set (the dashboard's
+        // "Total tx." tile) can skip the row query entirely: the total comes from a
+        // standalone COUNT(*), so the join plus the ORDER BY never have to run.
+        const countOnly = req.body.countOnly === true
 
         // ── Timestamp filters (optional) ──────────────────────────────────────
         const timestampBegin = req.body.timestamp_begin
@@ -4426,7 +4430,7 @@ fundingRateDataRouter.post("/profits-details/pairing/batch", async (req: Request
             timestampEnd,
         }
         // console.log("fundingRDataRouter -- params: ", params)
-        const cacheKey = generateCacheKey(params)
+        const cacheKey = generateCacheKey(params) + (countOnly ? ":count" : "")
         const cached = aggCache.get(cacheKey)
         if (cached) return res.status(200).json(cached)
 
@@ -4499,7 +4503,7 @@ fundingRateDataRouter.post("/profits-details/pairing/batch", async (req: Request
                         `
                     const dataParams = [...whereParams, limit, offset]
                     // console.log("data sql", dataSql, whereParams)
-                    const dataRows = await db.all(dataSql, dataParams)
+                    const dataRows = countOnly ? [] : await db.all(dataSql, dataParams)
 
                     // ----- Count query (no pagination) -----
                     let countSql = `
@@ -4592,7 +4596,8 @@ fundingRateDataRouter.post("/profits-details/pairing/batch", async (req: Request
 
         // ── 4. Cache and respond ──────────────────────────────────────────────
         const response = {
-            data: results,
+            // Count-only callers get the totals without the rows they would discard.
+            data: countOnly ? {} : results,
             pagination: {
                 current: page,
                 pageSize: limit,
