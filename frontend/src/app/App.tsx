@@ -88,10 +88,17 @@ export const App = () => {
     const themeConfig: ThemeConfig = createThemeConfig(theme)
     const globalToken = getDesignToken(themeConfig)
 
+    // Stay in sync when the token is cleared outside this tab. A same-tab logout
+    // clears it through UserContext, and a 401 triggers api/client's reload, so the
+    // listener only covers the remaining case — and posting the state update from a
+    // callback rather than straight in the effect body avoids a cascading render.
     useEffect(() => {
-        const token = localStorage.getItem("accessToken")
-        if (!token) setIsLogin(false)
-    })
+        const onStorage = () => {
+            if (!localStorage.getItem("accessToken")) setIsLogin(false)
+        }
+        window.addEventListener("storage", onStorage)
+        return () => window.removeEventListener("storage", onStorage)
+    }, [])
     useEffect(() => {
         if (isLogin) {
             if (user) localStorage.setItem("username", user)

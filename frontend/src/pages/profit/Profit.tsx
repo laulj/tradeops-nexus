@@ -391,18 +391,6 @@ export const Profit: FC<{
                     </Form.Item>
                 </div>
             </Form>
-            {/* TODO: Implement download for full database */}
-            {/*     
-                const profitsRaw = useProfitQuery(
-                    {
-                        [tradeTypes.spot]: ["ALL"],
-                        [tradeTypes.spotFuture]: ["ALL"],
-                        [tradeTypes.fundingRate]: ["ALL"],
-                    },
-                    activeAddress,
-                    views.Intraday,
-                    isSymbolsReady,
-                ) */}
             <Button
                 size={isMobile ? "small" : "middle"}
                 icon={<ExportIcon size={14} />}

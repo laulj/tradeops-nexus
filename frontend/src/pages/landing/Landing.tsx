@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import gsap from "gsap"
 import { ScrollToPlugin } from "gsap/ScrollToPlugin"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
@@ -228,8 +228,8 @@ const Hero: React.FC = () => {
             {/* Atmosphere */}
             <div className="pointer-events-none absolute inset-0">
                 <div className="landing-grid absolute inset-0" />
-                <div className="landing-orb-a absolute -top-40 left-[8%] h-[34rem] w-[34rem] rounded-full bg-indigo-600/25 blur-3xl" />
-                <div className="landing-orb-b absolute right-[4%] top-24 h-[30rem] w-[30rem] rounded-full bg-violet-600/20 blur-3xl" />
+                <div className="landing-orb-a absolute top-60 md:-top-40 left-[8%] h-[21rem] sm:h-[22rem] md:h-[32rem] w-[12rem] sm:w-[22rem] md:w-[32rem] rounded-full bg-indigo-600/25 blur-3xl" />
+                <div className="landing-orb-b absolute right-[4%] top-24 h-[15rem] sm:h-[22rem] md:h-[30rem] w-[15rem] sm:w-[22rem] md:w-[30rem] rounded-full bg-violet-500/20 blur-3xl" />
                 <div
                     ref={orbRef}
                     className="landing-cursor-orb opacity-0"
@@ -254,7 +254,7 @@ const Hero: React.FC = () => {
 
                 <h1
                     data-hero-stagger
-                    className="font-display mx-auto mt-8 text-[clamp(3.1rem,7.4vw,7.6rem)] leading-[0.98] tracking-[-0.01em] text-zinc-50"
+                    className="font-display mx-auto mt-8 text-[clamp(3.1rem,7.4vw,4.6rem)] leading-[0.98] tracking-[-0.01em] text-zinc-50"
                 >
                     <span className="block">From scattered tabs to</span>
                     <span className="font-display-italic text-shimmer mt-1 block">one commanding view.</span>
@@ -276,75 +276,45 @@ const Hero: React.FC = () => {
     )
 }
 
-// ─── Pinned dashboard reveal ────────────────────────────────────────────────
+// ─── Console reveal — sticky stage, one scrubbed timeline (no GSAP pin) ─────
 export const DashboardReveal: React.FC = () => {
-    const triggerRef = useRef<HTMLDivElement>(null)
-    const containerRef = useRef<HTMLDivElement>(null)
+    const sectionRef = useRef<HTMLElement>(null)
 
     useGSAP(
         () => {
-            if (!triggerRef.current || !containerRef.current) return
+            // Reduced motion: no timeline at all, so the copy and the frame simply
+            // render at their natural (visible) state.
+            if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
 
-            // Clear any previous instances (HMR / remount).
-            ScrollTrigger.getById("dashboard-pin")?.kill(true)
-            ScrollTrigger.getById("dashboard-reveal")?.kill(true)
-
-            // 1. Pin the console for one viewport of scroll (pin only — the reveal is
-            //    decoupled below so anchor jumps can never leave it hidden).
-            ScrollTrigger.create({
-                id: "dashboard-pin",
-                trigger: triggerRef.current,
-                start: "top top",
-                end: "+=100%",
-                pin: containerRef.current,
-                pinType: "fixed", // Perfect viewport sticking configuration
-                anticipatePin: 1,
-                invalidateOnRefresh: true,
-                toggleActions: "play none none none",
-            })
-
-            // 2. Reveal independently: fires while the section is still entering view
-            //    (earlier) and never reverses (never animates out), so arriving via a
-            //    header-offset anchor jump shows the console immediately and keeps it.
+            // CSS `position: sticky` holds the console, so there is no pin spacer, no
+            // pinType/anticipatePin, nothing to invalidate when fonts settle and no
+            // cleanup to hand-manage — useGSAP reverts this context.
+            //
+            // Range "top bottom -> top top": the reveal plays as the stage rises into
+            // view and is COMPLETE the moment it docks under the nav, so the nav's
+            // "Console" anchor and #demo deep links can never land on an empty stage.
+            // Only y + opacity animate, which keeps the whole thing on the compositor.
             gsap.timeline({
-                defaults: { ease: "power2.out" },
+                defaults: { ease: "none" },
                 scrollTrigger: {
-                    id: "dashboard-reveal",
-                    trigger: triggerRef.current,
-                    start: "top 85%",
-                    once: true,
+                    trigger: sectionRef.current,
+                    start: "top bottom",
+                    end: "top top",
+                    scrub: 1,
                     invalidateOnRefresh: true,
                 },
             })
-                .fromTo("[data-reveal-copy]", { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.7 }, 0.1)
-                .fromTo(
-                    "[data-reveal-frame]",
-                    { y: 120, scale: 0.8, rotateX: 18, opacity: 0 },
-                    { y: 0, scale: 1, rotateX: 0, opacity: 1, duration: 1.15, ease: "power3.out" },
-                    0.2,
-                )
+                .fromTo("[data-reveal-copy]", { y: 96, opacity: 0 }, { y: -48, opacity: 1, duration: 0.3 }, 0)
+                .fromTo("[data-reveal-frame]", { y: 128, opacity: 0 }, { y: -48, opacity: 1, duration: 0.55, ease: "power2.out" }, 0.18)
         },
-        {
-            scope: triggerRef,
-            dependencies: [],
-        },
+        { scope: sectionRef },
     )
 
-    useLayoutEffect(() => {
-        return () => {
-            ScrollTrigger.getById("dashboard-pin")?.kill(true)
-            ScrollTrigger.getById("dashboard-reveal")?.kill(true)
-            ScrollTrigger.refresh()
-        }
-    }, [])
-
     return (
-        /* 
-           REMOVED 'landing-perspective' class here.
-           Keeping this wrapper flat and normal allows GSAP to handle layout math seamlessly.
-        */
-        <section id="demo" ref={triggerRef} className="relative h-[200vh]">
-            <div ref={containerRef} className="w-full h-screen bg-[#07080c] flex flex-col items-center justify-center overflow-hidden px-6">
+        <section id="demo" ref={sectionRef} className="relative">
+            {/* Sticky stage — the console holds itself, natively. `relative` keeps the
+                grid/orb scoped to the stage rather than the whole (taller) section. */}
+            <div className="sticky top-0 relative flex h-svh flex-col items-center justify-center overflow-hidden px-6">
                 <div className="landing-grid pointer-events-none absolute inset-0 opacity-60" />
                 <div className="pointer-events-none absolute left-1/2 top-1/2 h-[42rem] w-[42rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-700/15 blur-3xl" />
 
@@ -355,17 +325,15 @@ export const DashboardReveal: React.FC = () => {
                     One deck. <span className="font-display-italic text-shimmer">Every signal.</span>
                 </h2>
 
-                {/* 
-                   ISOLATED PERSPECTIVE STAGE:
-                   Applying the 1600px perspective directly to a container around the mock 
-                   ensures the 3D rotation looks beautiful without breaking the scroll engine.
-                */}
-                <div className="mt-10 w-full max-w-5xl" style={{ perspective: "1600px", transformStyle: "preserve-3d" }}>
+                <div className="mt-10 w-full max-w-5xl">
                     <div data-reveal-frame className="w-full">
                         <DashboardMock />
                     </div>
                 </div>
             </div>
+
+            {/* Runway: how long the console holds before the venue marquee arrives. */}
+            <div className="h-[90vh]" aria-hidden />
         </section>
     )
 }

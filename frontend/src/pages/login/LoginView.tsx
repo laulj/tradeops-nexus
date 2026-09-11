@@ -302,7 +302,7 @@ export const LoginView: React.FC = () => {
                                             New users start with an empty portfolio
                                         </Text>
                                     )}
-                                    <Text type="secondary" className="text-xs">
+                                    <Text type="secondary" className="text-xs text-nowrap">
                                         <a
                                             href="#"
                                             onClick={(e) => {

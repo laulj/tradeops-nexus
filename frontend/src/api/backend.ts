@@ -143,6 +143,7 @@ export const getRawProfitDetailsBatch = async (
     address?: string,
     timestamp_begin?: number,
     timestamp_end?: number,
+    countOnly: boolean = false,
 ): Promise<{ data: { [key: string]: rawProfitResp[] }; pagination: { current: number; pageSize: number; total: number } } | undefined> => {
     const queryUrl = baseUrl + "data/profits-details/pairing/batch"
     const token = localStorage.getItem("accessToken")
@@ -152,7 +153,9 @@ export const getRawProfitDetailsBatch = async (
         return await apiClient<{ data: { [key: string]: rawProfitResp[] }; pagination: { current: number; pageSize: number; total: number } }>(
             queryUrl,
             {
-                data: { pairings, address, timestamp_begin, timestamp_end, page, limit },
+                // countOnly asks the backend to answer from its COUNT(*) only, so the
+                // detail rows (and the join + sort behind them) are never fetched.
+                data: { pairings, address, timestamp_begin, timestamp_end, page, limit, ...(countOnly ? { countOnly: true } : {}) },
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             },
         )
@@ -392,6 +395,7 @@ export const getRawSpotFutureProfitDetailsBatch = async (
     address?: string,
     timestamp_begin?: number,
     timestamp_end?: number,
+    countOnly: boolean = false,
 ): Promise<{ data: { [key: string]: rawProfitResp[] }; pagination: { current: number; pageSize: number; total: number } } | undefined> => {
     const queryUrl = baseUrl + "data/spotFuture/profits-details/pairing/batch"
     const token = localStorage.getItem("accessToken")
@@ -401,7 +405,7 @@ export const getRawSpotFutureProfitDetailsBatch = async (
         const resp = await apiClient<{ data: { [key: string]: rawProfitResp[] }; pagination: { current: number; pageSize: number; total: number } }>(
             queryUrl,
             {
-                data: { pairings, address, timestamp_begin, timestamp_end, page, limit },
+                data: { pairings, address, timestamp_begin, timestamp_end, page, limit, ...(countOnly ? { countOnly: true } : {}) },
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             },
         )
@@ -558,6 +562,7 @@ export const getRawFundingRProfitDetailsBatch = async (
     address?: string,
     timestamp_begin?: number,
     timestamp_end?: number,
+    countOnly: boolean = false,
 ): Promise<{ data: { [key: string]: rawProfitResp[] }; pagination: { current: number; pageSize: number; total: number } } | undefined> => {
     const queryUrl = baseUrl + "data/fRate/profits-details/pairing/batch"
     const token = localStorage.getItem("accessToken")
@@ -567,7 +572,7 @@ export const getRawFundingRProfitDetailsBatch = async (
         const resp = await apiClient<{ data: { [key: string]: rawProfitResp[] }; pagination: { current: number; pageSize: number; total: number } }>(
             queryUrl,
             {
-                data: { pairings, address, timestamp_begin, timestamp_end, page, limit },
+                data: { pairings, address, timestamp_begin, timestamp_end, page, limit, ...(countOnly ? { countOnly: true } : {}) },
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             },
         )
@@ -676,6 +681,7 @@ export const fetchRawData = async (
     viewType: views,
     pagination: TablePaginationConfig,
     calenderFilter: { startDate?: number; endDate?: number },
+    countOnly: boolean = false,
 ): Promise<{
     data: {
         [key: string]: rawProfitResp[]
@@ -702,6 +708,7 @@ export const fetchRawData = async (
             activeAddress === "ALL" ? undefined : activeAddress,
             calenderFilter.startDate,
             calenderFilter.endDate,
+            countOnly,
         ))!
     else if (tradeType === tradeTypes.spotFuture)
         resp = (await getRawSpotFutureProfitDetailsBatch(
@@ -711,6 +718,7 @@ export const fetchRawData = async (
             activeAddress === "ALL" ? undefined : activeAddress,
             calenderFilter.startDate,
             calenderFilter.endDate,
+            countOnly,
         ))!
     else if (tradeType === tradeTypes.fundingRate)
         resp = (await getRawFundingRProfitDetailsBatch(
@@ -720,6 +728,7 @@ export const fetchRawData = async (
             activeAddress === "ALL" ? undefined : activeAddress,
             calenderFilter.startDate,
             calenderFilter.endDate,
+            countOnly,
         ))!
     // Return the full response, including pagination metadata
     return resp // { data: {...}, pagination: {...} }

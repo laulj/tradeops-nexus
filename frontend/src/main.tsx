@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import { App } from "@/app/App"
 import "@/index.css"
 import "@/app/nexus.css"
+import "@/app/transitions.css"
 
 createRoot(document.getElementById("root")!).render(
     <StrictMode>

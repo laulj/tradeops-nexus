@@ -230,6 +230,7 @@ body.light .nexus-sider {
     min-height: 100vh;
 }
 .nexus-sider-top {
+    min-height: 80px;
     padding: 18px 16px 6px;
 }
 .nexus-sider-nav {

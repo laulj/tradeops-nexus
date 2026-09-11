@@ -20,6 +20,7 @@ import {
     LoaderCircle,
     LogOut,
     Mail,
+    Menu,
     Moon,
     RefreshCw,
     Search,
@@ -87,4 +88,5 @@ export const PairsIcon = make(ArrowRightLeft)
 export const GaugeIcon = make(Gauge)
 export const CrosshairIcon = make(Crosshair)
 export const MailIcon = make(Mail)
+export const MenuIcon = make(Menu)
 export const ArrowUpRightIcon = make(ArrowUpRight)

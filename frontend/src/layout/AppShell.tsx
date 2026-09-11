@@ -1,10 +1,11 @@
 import React, { type FC, useContext, useState, useEffect, useMemo } from "react"
-import { App, Button, Grid, Layout, Menu, Spin, Switch } from "antd"
+import { App, Button, Drawer, Grid, Layout, Menu, Spin, Switch } from "antd"
 import type { MenuProps } from "antd"
 import {
     BalanceIcon,
     FundingRateIcon,
     LogoutIcon,
+    MenuIcon,
     MoonIcon,
     OverviewIcon,
     PositionIcon,
@@ -24,7 +25,7 @@ import { tradeTypes, views, type profitInt } from "@/types"
 import { useSymbolQuery } from "@/hooks/useSymbols"
 import { useAddressesQuery } from "@/hooks/useAddresses"
 import { Dashboard } from "@/pages/dashboard"
-import { useProfitQuery } from "@/hooks/useProfits"
+import { useProfitQuery, useTxCountQuery } from "@/hooks/useProfits"
 import { LiveDot, SectionLabel } from "@/components/ui"
 import { applyThemeMode, persistThemeMode } from "@/app/themeMode"
 const Profit = lazy(() => import("@/pages/profit").then((mod) => ({ default: mod.Profit })))
@@ -80,32 +81,37 @@ export const AppShell: FC<{
     const { theme, setTheme } = useContext(ThemeContext)
     const [siderCollapse, setSiderCollapse] = useState(localStorage.getItem(siderCollapseStatus) === "true" ? true : false)
     const [currentMenu, setCurrentMenu] = useState("1")
+    // Phone navigation drawer (the rail is not rendered below md).
+    const [navOpen, setNavOpen] = useState(false)
 
     const { setIsLogin, user } = useContext(UserContext)
 
     // Flat, grouped navigation — matches the landing console: group headers with
     // micro-labels instead of collapsible submenus.
     const menuItems = useMemo<MenuItem[]>(() => {
-        const settingsChildren: MenuItem[] = [getItem("System", "8", <SystemIcon />)]
-        if (user === "admin") settingsChildren.push(getItem("Users", "9", <UsersIcon />))
+        // Phones get larger glyphs: the navigation lives in a Drawer there, so 20px
+        // icons cost no content width and clear the 44px touch-target guidance.
+        const glyphSize = isMobile ? 20 : 16
+        const settingsChildren: MenuItem[] = [getItem("System", "8", <SystemIcon size={glyphSize} />)]
+        if (user === "admin") settingsChildren.push(getItem("Users", "9", <UsersIcon size={glyphSize} />))
 
         return [
-            getItem("Overview", "group-overview", undefined, [getItem("Dashboard", "1", <OverviewIcon />)], "group"),
+            getItem("Overview", "group-overview", undefined, [getItem("Dashboard", "1", <OverviewIcon size={glyphSize} />)], "group"),
             getItem(
                 "Data",
                 "group-data",
                 undefined,
                 [
-                    getItem("FundingRate", "4", <FundingRateIcon />),
-                    getItem("Position", "5", <PositionIcon />),
-                    getItem("Profit", "6", <ProfitIcon />),
-                    getItem("Balance", "7", <BalanceIcon />),
+                    getItem("FundingRate", "4", <FundingRateIcon size={glyphSize} />),
+                    getItem("Position", "5", <PositionIcon size={glyphSize} />),
+                    getItem("Profit", "6", <ProfitIcon size={glyphSize} />),
+                    getItem("Balance", "7", <BalanceIcon size={glyphSize} />),
                 ],
                 "group",
             ),
             getItem("Settings", "group-settings", undefined, settingsChildren, "group"),
         ]
-    }, [user])
+    }, [user, isMobile])
     const onLogOut = async () => {
         const ok = await logout()
         // Drop all cached queries so the next account never sees this user's data.
@@ -142,28 +148,33 @@ export const AppShell: FC<{
     const isSymbolsReady = uniqueSymQuery.spot.isSuccess && uniqueSymQuery.spotFuture.isSuccess && uniqueSymQuery.fundingRate.isSuccess
 
     const { data, isLoading, isFetching } = useProfitQuery(
+        // No `!` on the symbol lists here: they really are undefined until the symbol
+        // queries resolve, and the hooks are written to cope with an empty/partial set.
         {
-            [tradeTypes.spot]: uniqueSymQuery.spot.data!,
-            [tradeTypes.spotFuture]: uniqueSymQuery.spotFuture.data!,
-            [tradeTypes.fundingRate]: uniqueSymQuery.fundingRate.data!,
+            [tradeTypes.spot]: uniqueSymQuery.spot.data,
+            [tradeTypes.spotFuture]: uniqueSymQuery.spotFuture.data,
+            [tradeTypes.fundingRate]: uniqueSymQuery.fundingRate.data,
         },
         activeAddress,
         views.Daily,
         isSymbolsReady,
     )
-    const profitsRaw = useProfitQuery(
+    // The "Total tx." tile needs one number, so it asks for the count only: the
+    // endpoints answer from their COUNT(*) and skip the detail rows entirely.
+    const { data: txsCount, isLoading: isTxCountLoading } = useTxCountQuery(
         {
             [tradeTypes.spot]: ["ALL"],
             [tradeTypes.spotFuture]: ["ALL"],
             [tradeTypes.fundingRate]: ["ALL"],
         },
         activeAddress,
-        views.Intraday,
         isSymbolsReady,
     )
-    const txsCount = useMemo(() => profitsRaw?.data?.pagination.total, [profitsRaw.data])
 
-    const isEverythingReady = !isSymbolsReady || isLoading || isFetching || profitsRaw.isFetched || profitsRaw.isLoading || isAddressesLoading
+    // Only the dashboard renders the aggregated profit series, so only the dashboard
+    // waits for it — every other route mounts and loads its own data straight away.
+    const isDashboardDataLoading = isLoading || isFetching
+    const isRouteReady = !isSymbolsReady || isAddressesLoading || (currentMenu === "1" && isDashboardDataLoading)
 
     const headerStyle: React.CSSProperties = {
         height: 80,
@@ -214,84 +225,123 @@ export const AppShell: FC<{
                     activeAddress={activeAddress}
                     setActiveAddress={setActiveAddress}
                     profitData={data as profitInt}
-                    txsCount={txsCount || 0}
+                    txsCount={txsCount}
+                    isTxCountLoading={isTxCountLoading}
+                    isProfitLoading={isDashboardDataLoading}
                 />
             )
     }
 
-    return (
-        <SiderCollapseContext.Provider value={{ siderCollapse, setSiderCollapse }}>
-            <Layout className="nexus-shell" style={layoutStyle}>
-                <Sider
-                    className={`nexus-sider ${siderCollapse ? "is-collapsed" : ""}`}
-                    breakpoint={siderCollapse ? undefined : "md"}
-                    collapsedWidth={64}
-                    theme={theme}
-                    collapsible={!isMobile}
-                    collapsed={siderCollapse}
-                    onCollapse={(value) => {
-                        localStorage.setItem(siderCollapseStatus, value.toString())
-                        setSiderCollapse(value)
-                    }}
-                >
-                    <div className="nexus-sider-inner">
-                        <div className="nexus-sider-top">
-                            <div className="flex flex-row justify-between self-start items-center" style={{ border: "solid 0px red" }}>
-                                <div className="flex">
-                                    {siderCollapse ? (
-                                        <></>
-                                    ) : (
-                                        <span className="font-metric text-[10px] uppercase tracking-[0.24em] text-zinc-500">console</span>
-                                    )}
-                                </div>
-                                <div className="flex">
-                                    <Switch
-                                        checked={theme === "dark"}
-                                        onChange={changeTheme}
-                                        checkedChildren={<MoonIcon size={12} className="pe-1" style={{ color: "oklch(94.5% 0.129 101.54)" }} />}
-                                        unCheckedChildren={<SunIcon size={12} className="ps-1" style={{ color: "oklch(62.3% 0.214 259.815)" }} />}
-                                        className={theme === "dark" ? "!bg-gold-600" : "!bg-blue-200"}
-                                    />
-                                </div>
-                            </div>
-                        </div>
+    // Shared navigation body: the desktop rail renders it compact (icons only), the
+    // phone Drawer renders it full width. Same Menu, same handlers, no duplication.
+    const siderBody = (compact: boolean): React.ReactElement => (
+        <div className="nexus-sider-inner">
+            {/* <div className="" style={{ border: "solid 1px red" }}> */}
+            <div className="nexus-sider-top w-full flex flex-row justify-between items-center">
+                {/* <div className="flex"> */}
+                {!compact && <span className="font-metric text-[10px] uppercase tracking-[0.24em] text-zinc-500">console</span>}
+                {/* </div> */}
+                {/* <div className="flex"> */}
+                <Switch
+                    checked={theme === "dark"}
+                    onChange={changeTheme}
+                    checkedChildren={<MoonIcon size={12} className="pe-1" style={{ color: "oklch(94.5% 0.129 101.54)" }} />}
+                    unCheckedChildren={<SunIcon size={12} className="ps-1" style={{ color: "oklch(62.3% 0.214 259.815)" }} />}
+                    className={theme === "dark" ? "!bg-gold-600" : "!bg-blue-200"}
+                />
+                {/* </div> */}
+            </div>
+            {/* </div> */}
 
-                        <div className="nexus-sider-nav">
-                            <Menu
-                                theme={theme}
-                                onClick={menuOnClick}
-                                selectedKeys={[currentMenu]}
-                                mode="inline"
-                                items={menuItems}
-                                style={{ background: "transparent", borderInlineEnd: 0 }}
-                                classNames={{
-                                    itemTitle: "font-metric !text-[10px] !uppercase !tracking-[0.14em]",
-                                }}
-                            />
-                            {!siderCollapse && (
-                                <div className="nexus-tile rounded-lg p-3 mt-6 mx-2">
-                                    <SectionLabel>Session</SectionLabel>
-                                    <p className="pt-1 font-metric text-[11px] text-zinc-400">{user ?? "guest"}</p>
-                                    <LiveDot label="live" className="mt-2" />
-                                </div>
-                            )}
+            <div className="nexus-sider-nav">
+                <Menu
+                    theme={theme}
+                    onClick={(e) => {
+                        menuOnClick(e)
+                        // Selecting a destination closes the phone drawer.
+                        setNavOpen(false)
+                    }}
+                    selectedKeys={[currentMenu]}
+                    mode="inline"
+                    items={menuItems}
+                    style={{ background: "transparent", borderInlineEnd: 0 }}
+                    classNames={{
+                        itemTitle: "font-metric !text-[10px] !uppercase !tracking-[0.14em]",
+                        // 48px rows in the drawer (Apple's 44pt minimum).
+                        ...(isMobile ? { item: "!h-12" } : {}),
+                    }}
+                />
+                {!compact && (
+                    <div className="nexus-tile flex flex-col rounded-lg p-3 mt-6 mx-2">
+                        <SectionLabel>Session</SectionLabel>
+                        <div className="flex flex-row items-end justify-between">
+                            <div>
+                                <p className="pt-1 font-metric text-[12px] text-zinc-400">{user ?? "guest"}</p>
+
+                                <LiveDot label="live" className="mt-2" />
+                            </div>
+                            <Button size="medium" type="default" danger icon={<LogoutIcon size={14} />} onClick={onLogOut}></Button>
                         </div>
                     </div>
-                </Sider>
+                )}
+            </div>
+        </div>
+    )
+
+    return (
+        <SiderCollapseContext.Provider value={{ siderCollapse: isMobile ? true : siderCollapse, setSiderCollapse }}>
+            {/* Phones: the nav overlays instead of occupying content width, so the
+                rail no longer competes with tables/charts. */}
+            {isMobile && (
+                <Drawer
+                    placement="left"
+                    open={navOpen}
+                    onClose={() => setNavOpen(false)}
+                    size={280}
+                    closable={false}
+                    styles={{ body: { padding: 0 } }}
+                >
+                    {siderBody(false)}
+                </Drawer>
+            )}
+            <Layout className="nexus-shell" style={layoutStyle}>
+                {!isMobile && (
+                    <Sider
+                        className={`nexus-sider ${siderCollapse ? "is-collapsed" : ""}`}
+                        collapsedWidth={80}
+                        theme={theme}
+                        collapsible
+                        collapsed={siderCollapse}
+                        onCollapse={(value) => {
+                            localStorage.setItem(siderCollapseStatus, value.toString())
+                            setSiderCollapse(value)
+                        }}
+                    >
+                        {siderBody(siderCollapse)}
+                    </Sider>
+                )}
                 <Layout>
-                    <Header style={headerStyle}>
-                        <div className="flex h-full items-center justify-between gap-3">
+                    <Header className="!px-4" style={headerStyle}>
+                        <div className="flex h-full w-[100%] items-center justify-between gap-3">
                             <span className="font-display text-xl leading-none sm:text-2xl" style={{ color: globalToken.colorText }}>
                                 TradeOps <span className="text-shimmer">Nexus</span>
                             </span>
-                            <div className="flex items-center gap-3">
-                                <Button size="small" type="default" danger icon={<LogoutIcon size={14} />} onClick={onLogOut}></Button>
+                            <div className="flex items-center gap-5">
+                                {isMobile && (
+                                    <Button
+                                        size="large"
+                                        type="default"
+                                        aria-label="Open navigation"
+                                        icon={<MenuIcon size={16} />}
+                                        onClick={() => setNavOpen(true)}
+                                    />
+                                )}
                             </div>
                         </div>
                     </Header>
 
-                    <Content style={contentStyle}>
-                        <Suspense fallback={<Spin spinning={isEverythingReady} fullscreen delay={200} />}>
+                    <Content style={{ ...contentStyle, padding: isMobile ? "0.5rem" : "1em" }}>
+                        <Suspense fallback={<Spin spinning={isRouteReady} fullscreen delay={200} />}>
                             <div className="!p-0">{getContent()}</div>
                         </Suspense>
                     </Content>

@@ -34,8 +34,21 @@ export const Dashboard: FC<{
     activeAddress: string
     setActiveAddress: React.Dispatch<React.SetStateAction<string>>
     profitData: profitInt
-    txsCount: number
-}> = ({ theme, globalToken, addresses, activeAddress, setActiveAddress, profitData, txsCount }): React.ReactElement => {
+    /** undefined until the count-only query lands */
+    txsCount?: number
+    isTxCountLoading?: boolean
+    isProfitLoading?: boolean
+}> = ({
+    theme,
+    globalToken,
+    addresses,
+    activeAddress,
+    setActiveAddress,
+    profitData,
+    txsCount,
+    isTxCountLoading,
+    isProfitLoading,
+}): React.ReactElement => {
     const { siderCollapse } = useContext(SiderCollapseContext)
     const [tradeType, setTradeType] = useState<tradeTypes>(tradeTypes.total)
     const [activeTab, setActiveTab] = useState("upSince")
@@ -251,6 +264,7 @@ export const Dashboard: FC<{
                     value={<Money value={latestBalance} />}
                     sub="across all wallets"
                     tone="gold"
+                    loading={isBalanceLoading}
                     icon={<TotalValueIcon size={16} style={{ color: brand.gold }} />}
                 />
                 <MetricTile
@@ -258,6 +272,7 @@ export const Dashboard: FC<{
                     value={<Money value={totalMetrics[tradeTypes.total].upSince} />}
                     sub="all-time realised"
                     tone="positive"
+                    loading={isProfitLoading}
                     icon={<UpSinceIcon size={16} style={{ color: brand.positive }} />}
                 />
                 <MetricTile
@@ -265,13 +280,15 @@ export const Dashboard: FC<{
                     value={<Money value={totalMetrics[tradeTypes.total].upToday} />}
                     sub="since 00:00"
                     tone="positive"
+                    loading={isProfitLoading}
                     icon={<UpTodayIcon size={16} style={{ color: brand.positive }} />}
                 />
                 <MetricTile
                     label="Total tx."
-                    value={<CountUp start={0} end={txsCount} />}
+                    value={<CountUp start={0} end={txsCount ?? 0} />}
                     sub="recorded fills"
                     tone="neutral"
+                    loading={isTxCountLoading}
                     icon={<TradesIcon size={16} style={{ color: brand.indigo }} />}
                 />
             </div>

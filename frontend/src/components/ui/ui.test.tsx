@@ -21,6 +21,13 @@ describe("ui primitives", () => {
         expect(screen.getByText("across 9 venues")).toBeInTheDocument()
     })
 
+    it("MetricTile swaps the value for a shimmer while loading", () => {
+        const { container } = render(<MetricTile label="Total tx." value="12,345" sub="recorded fills" loading />)
+        expect(screen.queryByText("12,345")).toBeNull()
+        expect(screen.getByText("recorded fills")).toBeInTheDocument()
+        expect(container.querySelector("[aria-busy='true'] .animate-pulse")).not.toBeNull()
+    })
+
     it("Tag applies its tone class", () => {
         const { container } = render(<Tag tone="earn">earn</Tag>)
         expect(container.querySelector(".nexus-tag--earn")).not.toBeNull()

@@ -12,7 +12,8 @@ import {
 import { useAddressesQuery } from "@/hooks/useAddresses"
 import { useBalanceQuery } from "@/hooks/useBalance"
 import { useSymbolQuery } from "@/hooks/useSymbols"
-import { tradeTypes } from "@/types"
+import { pairingSignature, useProfitQuery, useTxCountQuery } from "@/hooks/useProfits"
+import { tradeTypes, views } from "@/types"
 
 vi.mock("@/api/backend", () => ({
     getSpotSymbols: vi.fn(),
@@ -20,6 +21,8 @@ vi.mock("@/api/backend", () => ({
     getFundingRateSymbols: vi.fn(),
     getAddresses: vi.fn(),
     getBalanceBatch: vi.fn(),
+    fetchRawData: vi.fn(),
+    fetchAggregatedData: vi.fn(),
 }))
 
 const createWrapper = () => {
@@ -57,6 +60,41 @@ describe("useSymbolQuery", () => {
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true))
         expect(result.current.data).toEqual(expect.arrayContaining(["USDC", "BTC", "ETH"]))
+    })
+})
+
+describe("useProfitsQuery", () => {
+    it("builds an order-insensitive pairing signature that survives missing symbols", () => {
+        // Symbols arrive asynchronously, so the signature is evaluated before they
+        // exist: it must never throw, and it must be identical once they land —
+        // otherwise the key changes and the series is refetched on every load.
+        expect(pairingSignature({})).toBe(pairingSignature({ spot: [], spotFuture: [], fundingRate: [] }))
+        expect(pairingSignature({ spot: ["ETH", "BTC"] })).toBe(pairingSignature({ spot: ["BTC", "ETH"] }))
+        expect(pairingSignature({ spot: ["ETH"] })).not.toBe(pairingSignature({ spot: ["ETH", "BTC"] }))
+    })
+
+    it("renders before the symbol queries have resolved", () => {
+        // Regression: the shell mounts first, so these hooks are called with undefined
+        // symbol lists. Spreading them used to throw
+        // "pairingByType[tradeType] is not iterable" and blank the whole app.
+        const { result } = renderHook(
+            () => {
+                const profit = useProfitQuery({}, "ALL", views.Daily, false)
+                const count = useTxCountQuery({}, "ALL", false)
+                return { profitLoading: profit.isLoading, countLoading: count.isLoading, count: count.data }
+            },
+            { wrapper: createWrapper() },
+        )
+
+        expect(result.current.profitLoading).toBe(true)
+        expect(result.current.countLoading).toBe(true)
+        expect(result.current.count).toBeUndefined()
+    })
+
+    it("renders while only some of the symbol lists have arrived", () => {
+        expect(() =>
+            renderHook(() => useProfitQuery({ spot: ["ETH"] }, "ALL", views.Daily, false), { wrapper: createWrapper() }),
+        ).not.toThrow()
     })
 })
 

@@ -2,6 +2,7 @@ import { useState, type FC, useMemo } from "react"
 import { Typography, Table, Input, Grid, Tooltip } from "antd"
 import type { ColumnsType } from "antd/es/table"
 import { type spotFutureProfitResponse } from "@/types"
+import { truncateHash } from "../utils"
 
 const { useBreakpoint } = Grid
 const { Text } = Typography
@@ -172,7 +173,7 @@ export const SF_ProfitIntradayView: FC<{ profit: spotFutureProfitResponse[] }> =
             key: "UUID",
             ellipsis: true,
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{id}</div>
+                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
             },
             width: "5%",
             hidden: breakpoint,
@@ -195,7 +196,7 @@ export const SF_ProfitIntradayView: FC<{ profit: spotFutureProfitResponse[] }> =
 
             sortDirections: ["descend", "ascend"],
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{id}</div>
+                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
             },
             align: "end",
             width: "5%",
@@ -219,7 +220,7 @@ export const SF_ProfitIntradayView: FC<{ profit: spotFutureProfitResponse[] }> =
             align: "end",
 
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{id}</div>
+                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
             },
             width: "5%",
             hidden: breakpoint,

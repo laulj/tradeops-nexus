@@ -76,7 +76,9 @@ export const createThemeConfig = (theme: MenuTheme): ThemeConfig => {
                     bodyBg: brand.layout,
                     headerBg: brand.surface,
                     siderBg: brand.surface,
+                    triggerBg: "rgba(109, 124, 242, 0.18)",
                 },
+
                 Menu: {
                     itemBg: "transparent",
                     subMenuItemBg: "transparent",
@@ -142,6 +144,7 @@ export const createThemeConfig = (theme: MenuTheme): ThemeConfig => {
                 bodyBg: brand.lightLayout,
                 headerBg: brand.lightSurface,
                 siderBg: brand.lightSurface,
+                triggerBg: "rgba(124, 135, 221, 0.18)",
             },
             Menu: {
                 itemBg: "transparent",

@@ -6,6 +6,7 @@ import { SearchOutlined } from "@ant-design/icons"
 import type { InputRef, TableColumnType } from "antd"
 import type { FilterDropdownProps } from "antd/es/table/interface"
 import Highlighter from "react-highlight-words"
+import { truncateHash } from "./utils"
 const { useBreakpoint } = Grid
 const { Text } = Typography
 type DataIndex = keyof rawProfitResp
@@ -151,8 +152,9 @@ export const ProfitIntradayView: FC<{
             sortDirections: ["descend", "ascend"],
             align: "end",
             width: 50,
-            // width: "15%",
-            // responsive: ["md"],
+            render: (orderId: string) => {
+                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(orderId)}</div>
+            },
         },
         {
             title: "ID2",
@@ -162,12 +164,9 @@ export const ProfitIntradayView: FC<{
             align: "end",
             ...getColumnSearchProps("txHash"),
             render: (txHash: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{txHash}</div>
+                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(txHash)}</div>
             },
-            // width: "15%",
-            // width: 200,
-            // width: "3em",
-            // responsive: ["md"],
+            width: 50,
         },
         {
             title: (

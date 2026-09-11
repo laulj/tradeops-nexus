@@ -1,5 +1,11 @@
 import { type balanceResponse, views } from "@/types"
 
+export const truncateHash = (hash: string, startLength: number = 6, endLength: number = 4): string => {
+    if (!hash) return ""
+    if (hash.length <= startLength + endLength) return hash
+
+    return `${hash.substring(0, startLength)}...${hash.substring(hash.length - endLength)}`
+}
 const getCurrentWeek = (day: number, month: number) => {
     let weekly = (Math.floor(day / 7) + 1) * 7
     const isEvenMonth = month % 2 === 0 ? true : false

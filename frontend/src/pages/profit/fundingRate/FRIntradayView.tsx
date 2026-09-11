@@ -3,6 +3,7 @@ import { Typography, Table, Input, Grid } from "antd"
 import type { ColumnsType } from "antd/es/table"
 
 import { type fundingRateProfitResponse } from "@/types"
+import { truncateHash } from "../utils"
 const { useBreakpoint } = Grid
 const { Text } = Typography
 type DataIndex = keyof fundingRateProfitResponse
@@ -11,7 +12,7 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
     const [searchText, setSearchText] = useState("")
     const screens = useBreakpoint()
     const isMobile = !screens.md // or xs
-
+    console.log("FR", profit)
     const breakpoint = screens.xl
 
     const myProfits = useMemo(() => {
@@ -37,9 +38,7 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             title: "Time",
             dataIndex: "timestamp",
             key: "timestamp",
-            // defaultSortOrder: "descend",
             sorter: (a, b) => parseFloat(a.timestamp) - parseFloat(b.timestamp),
-            // sortDirections: ["descend", "ascend"],
             render: (timestamp: string) => {
                 if (!isNaN(new Date(Number(timestamp)).valueOf())) {
                     // const _timestamp = new Date(Number(timestamp)).toLocaleString("en-GB", { timeZone: "UTC" })
@@ -50,37 +49,31 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
 
                 return timestamp
             },
-            // width: "20%",
-            // width: breakpoint ? "20%" : "",
         },
         {
             title: "Symbol",
             dataIndex: "baseSymbol",
             key: "coin",
-            // ellipsis: true,
             align: "end",
             width: breakpoint ? "10%" : "15%",
         },
         {
-            title: "USD",
-            // dataIndex: "qty",
-            // key: "qty",
-            sorter: (a, b) => a.qty - b.qty,
-            //sortDirections: ["", "ascend"],
-            render: (data: fundingRateProfitResponse) => (data.OPex1Price * data.qty).toFixed(2),
-            align: "end",
-            width: "15%",
-        },
-        {
-            title: "Size",
+            title: "Size (Unit)",
             dataIndex: "qty",
             key: "qty",
             sorter: (a, b) => a.qty - b.qty,
-            //sortDirections: ["", "ascend"],
             render: (qty: number) => (qty ?? 0).toLocaleString(),
             align: "end",
             width: "15%",
         },
+        {
+            title: "Size (USD)",
+            sorter: (a, b) => a.qty - b.qty,
+            render: (data: fundingRateProfitResponse) => (data.OPex1Price * data.qty).toFixed(2),
+            align: "end",
+            width: "15%",
+        },
+
         {
             title: "PNL",
             dataIndex: "amount",
@@ -185,7 +178,9 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             dataIndex: "UUID",
             key: "UUID",
             ellipsis: true,
-
+            render: (id: string) => {
+                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+            },
             width: "5%",
             hidden: !breakpoint,
         },
@@ -204,7 +199,9 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             dataIndex: "ex1OrderId",
             key: "ex1OrderId",
             ellipsis: true,
-
+            render: (id: string) => {
+                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+            },
             sortDirections: ["descend", "ascend"],
             align: "end",
             width: "5%",
@@ -225,7 +222,6 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             dataIndex: "ex1FundingFee",
             key: "ex1FundingFee",
             sorter: (a, b) => a.ex1FundingFee - b.ex1FundingFee,
-            //sortDirections: ["", "ascend"],
             render: (fundingFee: number) => {
                 const _fundingFee = fundingFee ? fundingFee * -1 : 0
                 return <Text type={_fundingFee > 0 ? "success" : _fundingFee === 0 ? "warning" : "danger"}>{_fundingFee?.toFixed(4)}</Text>
@@ -238,7 +234,6 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             dataIndex: "ex1OrderFee",
             key: "ex1OrderFee",
             sorter: (a, b) => a.ex1OrderFee - b.ex1OrderFee,
-            //sortDirections: ["", "ascend"],
             render: (fee: number) => (fee ?? 0).toFixed(4),
             align: "end",
             width: "6%",
@@ -248,8 +243,6 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             dataIndex: "ex2Name",
             key: "ex2Name",
             ellipsis: true,
-            // ...getExpandedColumnSearchProps("type", "dexName"),
-            // sorter: (a, b) => parseFloat(a.dexName as string) - parseFloat(b.dexName as string),
             sortDirections: ["descend", "ascend"],
             align: "center",
             width: "4%",
@@ -260,7 +253,9 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             key: "ex2OrderId",
             ellipsis: true,
             align: "end",
-            // ...getExpandedColumnSearchProps("type", "txHash"),
+            render: (id: string) => {
+                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+            },
             width: "5%",
             hidden: !breakpoint,
         },
@@ -278,7 +273,6 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             dataIndex: "ex2FundingFee",
             key: "ex2FundingFee",
             sorter: (a, b) => a.ex2FundingFee - b.ex2FundingFee,
-            //sortDirections: ["", "ascend"],
             render: (fundingFee: number) => {
                 const _fundingFee = fundingFee ? fundingFee * -1 : 0
                 return <Text type={_fundingFee > 0 ? "success" : _fundingFee === 0 ? "warning" : "danger"}>{_fundingFee?.toFixed(4)}</Text>
@@ -291,7 +285,6 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             dataIndex: "ex2OrderFee",
             key: "ex2OrderFee",
             sorter: (a, b) => a.ex2OrderFee - b.ex2OrderFee,
-            //sortDirections: ["", "ascend"],
             render: (fee: number) => (fee ?? 0).toFixed(4),
             align: "end",
             width: "6%",

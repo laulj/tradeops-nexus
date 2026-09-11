@@ -24,7 +24,7 @@ export const DashboardMock: React.FC<{ className?: string }> = ({ className }) =
 
     return (
         <div
-            className={`landing-glass w-full max-w-5xl rounded-2xl overflow-hidden text-left ${className ?? ""}`}
+            className={`landing-glass landing-glass--no-blur w-full max-w-5xl rounded-2xl overflow-hidden text-left ${className ?? ""}`}
             aria-hidden
         >
             {/* Title bar */}

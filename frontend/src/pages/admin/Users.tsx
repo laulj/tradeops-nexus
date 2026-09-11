@@ -66,7 +66,7 @@ export const AdminUsers: React.FC = () => {
     ]
 
     return (
-        <Panel label="User management">
+        <Panel label="User management" className="overflow-x-auto">
             <p className="mb-4 text-xs text-zinc-500">Deleting a user permanently removes their account and all associated data.</p>
             <Table rowKey="username" loading={isLoading} columns={columns} dataSource={users ?? []} pagination={false} />
         </Panel>

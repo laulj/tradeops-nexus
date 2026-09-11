@@ -47,6 +47,14 @@
     -webkit-backdrop-filter: blur(16px);
 }
 
+/* Inside the sticky console the blur is expensive for nothing: the browser must
+   re-sample and re-blur the backdrop on every frame while the page scrolls
+   behind it, which is what made the console reveal stutter. */
+.landing-glass--no-blur {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
 /* Ambient grid texture (hero only) */
 .landing-grid {
     background-image:

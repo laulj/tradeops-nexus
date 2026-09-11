@@ -1,8 +1,13 @@
 /* ── Public-route page transitions ──────────────────────────────────────────
-   Crossfade + subtle vertical glide when swapping between the landing page (/)
-   and the sign-in screen (/login). Works on Chromium/Edge via the View
-   Transition API; elsewhere routes swap instantly and the arriving view fades
-   up through .nexus-route-enter. Reduced-motion: no movement. */
+   Crossfade when swapping between the landing page (/) and the sign-in screen
+   (/login). Chromium/Edge get the crossfade + glide from the View Transition
+   API below; elsewhere the arriving view fades in through .nexus-route-enter.
+
+   NOTE: .nexus-route-enter deliberately animates ONLY opacity. A transform on
+   this element would make it the containing block for positioned descendants
+   (it wraps the whole landing page, including the sticky console stage) and
+   would invalidate scroll-trigger measurements taken during the animation.
+   The landing hero does its own rise-and-fade via GSAP. */
 
 @media (prefers-reduced-motion: no-preference) {
     ::view-transition-old(root) {
@@ -29,11 +34,9 @@
 @keyframes nexus-route-enter {
     from {
         opacity: 0;
-        transform: translateY(10px);
     }
     to {
         opacity: 1;
-        transform: none;
     }
 }
 .nexus-route-enter {
