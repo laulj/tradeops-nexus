@@ -11,6 +11,7 @@ import {
     spotFuture_migrateFrom_oldDB as spotFutureMigrateImpl,
     FR_migrateFrom_oldDB as FRMigrateImpl,
 } from "./dbMigrations"
+import { ADMIN_USERNAME, adminPassword } from "./credentials"
 sqlite3.verbose()
 
 export interface data {
@@ -715,8 +716,8 @@ async function createFRTables(newdb: Database) {
     }
 }
 // ── Multi-user auth store (tx.db) ───────────────────────────────────────────
-const ADMIN_USERNAME = "admin"
-const ADMIN_PASSWORD = "demo123"
+// The admin username and password come from ./credentials: the password is a
+// deployment secret, not a constant in this file.
 
 export const ensureUsersTable = async (db: Database) => {
     await db.exec(`CREATE TABLE IF NOT EXISTS users (
@@ -730,12 +731,18 @@ export const ensureUsersTable = async (db: Database) => {
     if (!cols.some((c) => c.name === "demo_populated")) {
         await db.exec(`ALTER TABLE users ADD COLUMN demo_populated INTEGER NOT NULL DEFAULT 0`)
     }
-    const adminHash = keccak256(utf8ToBytes(ADMIN_PASSWORD))
+    const adminHash = keccak256(utf8ToBytes(adminPassword()))
     await db.run(`INSERT OR IGNORE INTO users (username, password_hash, created_at) VALUES (?, ?, ?)`, [
         ADMIN_USERNAME,
         Buffer.from(adminHash),
         Date.now(),
     ])
+    // INSERT OR IGNORE never touches an existing row, so a password rotated in the
+    // host's environment would otherwise never take effect on a database that
+    // already has the account. When the operator supplies one, it wins.
+    if (process.env.ADMIN_PASSWORD?.trim()) {
+        await db.run(`UPDATE users SET password_hash = ? WHERE username = ?`, [Buffer.from(adminHash), ADMIN_USERNAME])
+    }
 }
 
 export const getUser = async (

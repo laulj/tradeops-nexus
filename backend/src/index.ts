@@ -5,6 +5,7 @@ import express, { Express, Request, Response, NextFunction } from "express"
 import { bytesToHex, equalsBytes } from "ethereum-cryptography/utils"
 import { authenticateMiddleware, initMiddleware } from "./middleware"
 import { requireAdmin } from "./guards"
+import { ADMIN_USERNAME } from "./credentials"
 import { getUser, createUser, listUsers } from "./database"
 import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS } from "./demoData"
 import { invalidateUserCache } from "./utils"
@@ -112,8 +113,8 @@ const ensureUserSession = async (username: string): Promise<User | undefined> =>
         name: username,
         pass: Uint8Array.from(record.password_hash),
         JWT: [],
-        status: username === "admin" ? adminStatus : demo ? demoStatusFor(username) : {},
-        upTime: username === "admin" ? adminUpTime : demo ? demoUpTimeFor(username) : {},
+        status: username === ADMIN_USERNAME ? adminStatus : demo ? demoStatusFor(username) : {},
+        upTime: username === ADMIN_USERNAME ? adminUpTime : demo ? demoUpTimeFor(username) : {},
     }
     return users[username]
 }
@@ -346,7 +347,7 @@ app.get("/users", authenticateMiddleware, requireAdmin, async (_req: Request, re
 app.delete("/users/:username", authenticateMiddleware, requireAdmin, async (req: Request, res: Response) => {
     const target = req.params.username
     if (!target) return res.status(400).json({ error: "Missing username" })
-    if (target === "admin") return res.status(400).json({ error: "The admin account cannot be deleted" })
+    if (target === ADMIN_USERNAME) return res.status(400).json({ error: "The admin account cannot be deleted" })
 
     try {
         await removeUserData(target)

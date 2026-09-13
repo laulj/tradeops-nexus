@@ -1,6 +1,7 @@
 import OS from "os"
 import cluster, { Cluster } from "cluster"
 import { app, port } from "."
+import { assertCredentialsConfigured } from "./credentials"
 
 if (require.main === module) {
     if (cluster.isPrimary) {
@@ -12,6 +13,9 @@ if (require.main === module) {
         }
     } else {
         console.log(`INFO -- Worker ${process.pid} has started.`)
+        // Fail fast on a misconfigured deployment instead of on the first request
+        // that touches the users table.
+        assertCredentialsConfigured()
         app.listen(port, async () => {
             console.log(`[server]: Server is running at http://localhost:${port}`)
 

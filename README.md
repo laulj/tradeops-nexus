@@ -48,7 +48,7 @@ pnpm --dir backend dev
 pnpm --dir frontend dev
 ```
 
-Open <http://localhost:5173> and sign in as **`admin` / `demo123`** — that account is created automatically on first use.
+Open <http://localhost:5173> and sign in as **`admin` / `demo123`** — that is the development default, and the account is created automatically on first use. Set `ADMIN_PASSWORD` (see [Configuration](#configuration)) to choose your own; a production deployment requires it.
 
 > [!IMPORTANT]
 > The dev server proxies every API prefix (`/login`, `/register`, `/logout`, `/status`, `/users`, `/data`)
@@ -103,6 +103,7 @@ Copy `frontend/.env.example` to `frontend/.env.local` to override the frontend v
 | `SPOT_FUTURE_DB_PATH` | backend | `./db/spotFuture.db` | Perp-futures database |
 | `FUNDING_RATE_DB_PATH` | backend | `./db/fRate.db` | Funding-rate database |
 | `DEMO_WINDOW_DAYS` | backend | `1095` | Length of the history seeded for a demo account (3 years) |
+| `ADMIN_PASSWORD` | backend | `demo123` (development only) | Password for the bootstrap `admin` account. **Required when `NODE_ENV=production`**, because that account can list/delete users and download the raw databases |
 | `VITE_BACKEND_TARGET` | frontend (dev/preview) | `http://localhost:8080` | Proxy target for API calls |
 | `VITE_API_BASE_URL` | frontend (build) | same origin | API origin — only needed when the SPA is hosted separately (see Deployment) |
 | `VITE_ENABLE_QUERY_DEVTOOLS` | frontend (dev) | _off_ | Mount React Query Devtools locally |

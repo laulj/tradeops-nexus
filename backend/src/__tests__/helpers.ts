@@ -38,6 +38,9 @@ export const setDbEnv = (dir: string) => {
     // Keep the demo seed small here: the production default is a three-year
     // history, which would make every request that registers a demo user slow.
     process.env.DEMO_WINDOW_DAYS = "120"
+    // Pin the admin password so the tests neither depend on (nor leak) whatever
+    // the developer's shell exports, and the production guard cannot fire.
+    process.env.ADMIN_PASSWORD = ADMIN_PASSWORD
 }
 
 export const clearDbEnv = () => {
@@ -45,6 +48,7 @@ export const clearDbEnv = () => {
     delete process.env.SPOT_FUTURE_DB_PATH
     delete process.env.FUNDING_RATE_DB_PATH
     delete process.env.DEMO_WINDOW_DAYS
+    delete process.env.ADMIN_PASSWORD
 }
 
 export const removeTempDir = (dir: string) => rmSync(dir, { recursive: true, force: true })
