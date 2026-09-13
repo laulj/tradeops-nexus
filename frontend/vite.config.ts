@@ -49,8 +49,11 @@ export default defineConfig(({ mode }) => {
             proxy: apiProxy,
         },
         build: {
-            // Emit source maps for the production bundle (Lighthouse / debugging)
-            sourcemap: true,
+            // No source maps in the deployed bundle. They added ~12.8 MB to the
+            // asset payload — more than every JS chunk combined — and shipped the
+            // full source to anyone who requested a *.js.map. Debug against a
+            // local build when you need Lighthouse or a stack trace.
+            sourcemap: false,
         },
         test: {
             environment: "jsdom",

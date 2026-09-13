@@ -16,6 +16,7 @@ import { promisify } from "util"
 import { spotFutureDataRouter } from "./futureDatabaseRouter"
 import { fundingRateDataRouter } from "./fundingRateDatabaseRouter"
 import compression from "compression"
+import { serveHashedAssets, serveSpaFiles } from "./staticAssets"
 
 const signAsync = promisify(
     sign as (payload: string | object | Buffer, secretOrPrivateKey: Secret, options: SignOptions) => void,
@@ -153,11 +154,17 @@ const SPA_INDEX = path.join(SPA_DIR, "index.html")
 const isHtmlNavigation = (req: Request) => String(req.headers.accept ?? "").includes("text/html")
 
 app.use(cors())
+// Compress before anything else: `compression()` wraps res.write/res.end for the
+// handlers registered *after* it, so mounting it below express.static() left
+// every asset (including the ~1.5 MB app chunk) uncompressed on the wire.
+app.use(compression())
 app.use(express.json({ limit: "50mb" }))
 app.use(express.urlencoded({ limit: "50mb", extended: true })) // For parsing application/x-www-form-urlencoded
 app.use(initMiddleware)
-app.use(express.static(SPA_DIR))
-app.use(compression())
+// Hashed chunks cache immutably; named files (index.html, favicon, og-image)
+// revalidate so a deploy is picked up on the next request.
+app.use("/assets", serveHashedAssets(SPA_DIR))
+app.use(serveSpaFiles(SPA_DIR))
 
 export async function authenticate(name: string, pass: object) {
     if (!name || !pass) return false
