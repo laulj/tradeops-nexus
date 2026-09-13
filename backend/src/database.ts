@@ -481,7 +481,13 @@ export var database = {
             // return false
         }
     },
-    FRupdateTransactionFR: async (typedSymbol: EXCHANGE_NAME, _openingId: string, fundingFee: number, username: string, db: Database) => {
+    FRupdateTransactionFR: async (
+        typedSymbol: EXCHANGE_NAME,
+        _openingId: string,
+        fundingFee: number,
+        username: string,
+        db: Database,
+    ) => {
         // const db = database.spotFutureDB as Database
 
         try {
@@ -725,20 +731,20 @@ export const ensureUsersTable = async (db: Database) => {
         await db.exec(`ALTER TABLE users ADD COLUMN demo_populated INTEGER NOT NULL DEFAULT 0`)
     }
     const adminHash = keccak256(utf8ToBytes(ADMIN_PASSWORD))
-    await db.run(
-        `INSERT OR IGNORE INTO users (username, password_hash, created_at) VALUES (?, ?, ?)`,
-        [ADMIN_USERNAME, Buffer.from(adminHash), Date.now()],
-    )
+    await db.run(`INSERT OR IGNORE INTO users (username, password_hash, created_at) VALUES (?, ?, ?)`, [
+        ADMIN_USERNAME,
+        Buffer.from(adminHash),
+        Date.now(),
+    ])
 }
 
 export const getUser = async (
     username: string,
 ): Promise<{ username: string; password_hash: Uint8Array; demo_populated: number } | undefined> => {
     if (!database.db) return undefined
-    return (await database.db.get(
-        `SELECT username, password_hash, demo_populated FROM users WHERE username = ?`,
-        [username],
-    )) as { username: string; password_hash: Uint8Array; demo_populated: number } | undefined
+    return (await database.db.get(`SELECT username, password_hash, demo_populated FROM users WHERE username = ?`, [
+        username,
+    ])) as { username: string; password_hash: Uint8Array; demo_populated: number } | undefined
 }
 
 export const createUser = async (username: string, passwordHash: Uint8Array) => {
@@ -752,9 +758,11 @@ export const createUser = async (username: string, passwordHash: Uint8Array) => 
 
 export const listUsers = async (): Promise<{ username: string; created_at: number; demo_populated: number }[]> => {
     if (!database.db) return []
-    return (await database.db.all(
-        `SELECT username, created_at, demo_populated FROM users ORDER BY username`,
-    )) as { username: string; created_at: number; demo_populated: number }[]
+    return (await database.db.all(`SELECT username, created_at, demo_populated FROM users ORDER BY username`)) as {
+        username: string
+        created_at: number
+        demo_populated: number
+    }[]
 }
 
 // Idempotently add the per-user owner column to every data table. Existing rows
@@ -841,6 +849,7 @@ export const initDatabase = async (filename: string, type: "spot" | "spotFuture"
     // Those queries join and sort with a `username` filter, so hand SQLite the
     // indexes that let it do that without scanning and sorting the whole table.
     await ensureIndexes(db)
+
     return db
 }
 

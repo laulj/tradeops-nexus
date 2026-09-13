@@ -68,6 +68,7 @@ export const LoginView: React.FC = () => {
             localStorage.setItem("accessToken", response.accessToken)
             if (response.username) localStorage.setItem("username", response.username)
             queryClient.clear()
+            transitionTo("./")
             setUser(response.username ?? username)
             setIsLogin(true)
             // Component unmounts — AppShell takes over; no further state updates.
@@ -273,9 +274,8 @@ export const LoginView: React.FC = () => {
                                     <Alert
                                         type="error"
                                         showIcon
-                                        message={serverError}
-                                        closable
-                                        onClose={() => setServerError(null)}
+                                        title={serverError}
+                                        closable={{ closeIcon: true, onClose: () => setServerError(null), "aria-label": "close" }}
                                         className="mb-4"
                                     />
                                 )}
@@ -286,7 +286,7 @@ export const LoginView: React.FC = () => {
                                     </Button>
                                 </Form.Item>
 
-                                <div className="flex justify-between items-center gap-3 mt-2">
+                                <div className="flex w-full justify-between items-center gap-3 mt-2">
                                     {mode === "login" ? (
                                         <button
                                             type="button"

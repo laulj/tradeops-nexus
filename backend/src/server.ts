@@ -1,12 +1,6 @@
 import OS from "os"
 import cluster, { Cluster } from "cluster"
 import { app, port } from "."
-import {
-    FR_migrateFrom_oldDB,
-    migrateSpotDB,
-    spotFuture_migrateFrom_oldDB,
-    spotFuture_migrateTypeTxsFrom_oldDB,
-} from "./database"
 
 if (require.main === module) {
     if (cluster.isPrimary) {

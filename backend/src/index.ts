@@ -55,23 +55,23 @@ const adminStatus: Status = {
         AKT: "Good",
         OSMO: "Good",
         FET: "Good",
-        aODNOABSOASIaaaaaaaaaaaaaa: "Good",
+        testingCustomLongName: "Good",
     },
-    "0x24a11145044a453C39B028F6A3C8d80fB9e48885": { OSMO: "Good", aODNOABSOASI: "Good" },
+    "0x24a11145044a453C39B028F6A3C8d80fB9e48885": { OSMO: "Good", testingCustomLongName: "Good" },
 }
 const adminUpTime: UpTime = {
     "0x21b412d9A4368E6ff5b6d301e4Aa64ff8b8aA7db": {
         AKT: { start: (Date.now() - 1 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
         OSMO: { start: (Date.now() - 100 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
         FET: { start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
-        aODNOABSOASIaaaaaaaaaaaaaa: {
+        testingCustomLongName: {
             start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(),
             end: Date.now().toString(),
         },
     },
     "0x24a11145044a453C39B028F6A3C8d80fB9e48885": {
         OSMO: { start: (Date.now() - 100 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
-        aODNOABSOASI: { start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
+        testingCustomLongName: { start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
     },
 }
 
@@ -88,7 +88,10 @@ const demoUpTimeFor = (username: string): UpTime => {
     const upTime: UpTime = {}
     for (let i = 0; i < 2; i++) {
         upTime[demoAddress(username, i)] = Object.fromEntries(
-            DEMO_SYMBOLS.map((s) => [s, { start: (Date.now() - 30 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() }]),
+            DEMO_SYMBOLS.map((s) => [
+                s,
+                { start: (Date.now() - 30 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
+            ]),
         )
     }
     return upTime
