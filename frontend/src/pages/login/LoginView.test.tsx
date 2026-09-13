@@ -108,7 +108,7 @@ describe("LoginView", () => {
         expect(passwordInput()).toBeInTheDocument()
         expect(loginButton()).toBeInTheDocument()
         expect(screen.getByRole("switch")).toBeInTheDocument()
-        expect(screen.getByRole("button", { name: /try demo: admin \/ demo123/i })).toBeInTheDocument()
+        expect(screen.getByRole("button", { name: /try demo: userDemo \/ demo123/i })).toBeInTheDocument()
         expect(screen.getByText("Create an account")).toBeInTheDocument()
     })
 
@@ -123,7 +123,7 @@ describe("LoginView", () => {
         setSearch("/login?demo=1")
         renderLoginView()
 
-        expect(usernameInput()).toHaveValue("admin")
+        expect(usernameInput()).toHaveValue("userDemo")
         expect(passwordInput()).toHaveValue("demo123")
     })
 
@@ -152,13 +152,13 @@ describe("LoginView", () => {
         mockedLogin.mockResolvedValue(okAuth("test-token"))
 
         // One-click demo fill replaces the old always-prefilled demo credentials.
-        await user.click(screen.getByRole("button", { name: /try demo: admin \/ demo123/i }))
+        await user.click(screen.getByRole("button", { name: /try demo: userDemo \/ demo123/i }))
         await user.click(loginButton())
 
         await waitFor(() => {
-            expect(mockedLogin).toHaveBeenCalledWith("admin", "demo123")
+            expect(mockedLogin).toHaveBeenCalledWith("userDemo", "demo123")
             expect(setIsLoginSpy).toHaveBeenCalledWith(true)
-            expect(setUserSpy).toHaveBeenCalledWith("admin")
+            expect(setUserSpy).toHaveBeenCalledWith("userDemo")
         })
         // The React Query cache must be cleared so a previous account's data is
         // never shown to the newly logged-in user.

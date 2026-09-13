@@ -547,7 +547,7 @@ const Footer: React.FC = () => {
 
             <div className="mx-auto mt-12 flex max-w-7xl flex-col items-center justify-between gap-3 border-t border-white/[0.07] px-6 pt-6 md:flex-row">
                 <p className="text-sm !text-zinc-600">TradeOps Nexus © {new Date().getFullYear()} — built for global scale.</p>
-                <p className="font-metric text-[10px] uppercase tracking-[0.16em] !text-zinc-600">Demo · admin / demo123</p>
+                <p className="font-metric text-[10px] uppercase tracking-[0.16em] !text-zinc-600">Demo · userDemo / demo123</p>
             </div>
         </footer>
     )

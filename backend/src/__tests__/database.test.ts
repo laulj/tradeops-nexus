@@ -18,10 +18,13 @@ afterAll(async () => {
 })
 
 describe("users table (current schema)", () => {
-    it("creates the users table and seeds the admin account", async () => {
+    it("creates the users table and seeds both bootstrap accounts, empty", async () => {
         const db = await openDb(txPath)
-        const rows = await query(db, `SELECT username, demo_populated FROM users`)
-        expect(rows).toEqual([{ username: "admin", demo_populated: 0 }])
+        const rows = await query(db, `SELECT username, demo_populated FROM users ORDER BY username`)
+        expect(rows).toEqual([
+            { username: "admin", demo_populated: 0 },
+            { username: "userDemo", demo_populated: 0 },
+        ])
         db.close()
     })
 
@@ -33,7 +36,7 @@ describe("users table (current schema)", () => {
         expect(user!.demo_populated).toBe(0)
 
         const list = await listUsers()
-        expect(list.map((u) => u.username)).toEqual(["admin", "alice"])
+        expect(list.map((u) => u.username)).toEqual(["admin", "alice", "userDemo"])
     })
 })
 

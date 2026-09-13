@@ -9,8 +9,10 @@
 
 > [!NOTE]
 > The live demo runs on Render, serving the API and the compiled SPA from a single
-> service. No databases are committed, so it starts empty — register an account with
-> **Populate with demo data** to fill the dashboard.
+> service. No databases are committed, so it starts empty. Two ways to see a full
+> dashboard: sign in with the shared sample account **`userDemo` / `demo123`** (its
+> three-year history is generated the first time it signs in), or register your own
+> account with **Populate with demo data**.
 
 ## What it does
 
@@ -63,6 +65,10 @@ pnpm --dir frontend build && pnpm --dir backend build && pnpm --dir backend star
 ```
 
 ### Get a dashboard full of data
+
+The quickest look around is the shared sample account: **`userDemo` / `demo123`**. Nothing about it is committed — its history is generated the first time it signs in — and it can only ever see the rows generated for it.
+
+To work from your own account instead:
 
 1. Choose **Create an account**.
 2. Tick **Populate with demo data**.

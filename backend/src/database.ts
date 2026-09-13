@@ -11,7 +11,7 @@ import {
     spotFuture_migrateFrom_oldDB as spotFutureMigrateImpl,
     FR_migrateFrom_oldDB as FRMigrateImpl,
 } from "./dbMigrations"
-import { ADMIN_USERNAME, adminPassword } from "./credentials"
+import { ADMIN_USERNAME, adminPassword, DEMO_USERNAME, demoPassword } from "./credentials"
 sqlite3.verbose()
 
 export interface data {
@@ -716,8 +716,26 @@ async function createFRTables(newdb: Database) {
     }
 }
 // ── Multi-user auth store (tx.db) ───────────────────────────────────────────
-// The admin username and password come from ./credentials: the password is a
-// deployment secret, not a constant in this file.
+// The bootstrap usernames and passwords come from ./credentials: the admin
+// password is a deployment secret, not a constant in this file.
+
+/**
+ * Idempotently makes sure `username` exists with `password`. INSERT OR IGNORE
+ * leaves an existing row alone, so when the operator supplies the value through
+ * the environment we also UPDATE the hash — otherwise rotating it in the host's
+ * environment would never take effect on a database that already has the row.
+ */
+const ensureBootstrapAccount = async (db: Database, username: string, password: string, envVar: string) => {
+    const hash = keccak256(utf8ToBytes(password))
+    await db.run(`INSERT OR IGNORE INTO users (username, password_hash, created_at) VALUES (?, ?, ?)`, [
+        username,
+        Buffer.from(hash),
+        Date.now(),
+    ])
+    if (process.env[envVar]?.trim()) {
+        await db.run(`UPDATE users SET password_hash = ? WHERE username = ?`, [Buffer.from(hash), username])
+    }
+}
 
 export const ensureUsersTable = async (db: Database) => {
     await db.exec(`CREATE TABLE IF NOT EXISTS users (
@@ -731,18 +749,11 @@ export const ensureUsersTable = async (db: Database) => {
     if (!cols.some((c) => c.name === "demo_populated")) {
         await db.exec(`ALTER TABLE users ADD COLUMN demo_populated INTEGER NOT NULL DEFAULT 0`)
     }
-    const adminHash = keccak256(utf8ToBytes(adminPassword()))
-    await db.run(`INSERT OR IGNORE INTO users (username, password_hash, created_at) VALUES (?, ?, ?)`, [
-        ADMIN_USERNAME,
-        Buffer.from(adminHash),
-        Date.now(),
-    ])
-    // INSERT OR IGNORE never touches an existing row, so a password rotated in the
-    // host's environment would otherwise never take effect on a database that
-    // already has the account. When the operator supplies one, it wins.
-    if (process.env.ADMIN_PASSWORD?.trim()) {
-        await db.run(`UPDATE users SET password_hash = ? WHERE username = ?`, [Buffer.from(adminHash), ADMIN_USERNAME])
-    }
+    await ensureBootstrapAccount(db, ADMIN_USERNAME, adminPassword(), "ADMIN_PASSWORD")
+    // The shared sample account is created here but left empty: its rows are
+    // generated on first sign-in (see ensureDemoPopulated) so a fresh deployment
+    // does not pay for them until somebody asks.
+    await ensureBootstrapAccount(db, DEMO_USERNAME, demoPassword(), "DEMO_PASSWORD")
 }
 
 export const getUser = async (

@@ -38,7 +38,7 @@ export const LoginView: React.FC = () => {
     const demoIntent = searchParams.get("demo") === "1"
     const [mode, setMode] = useState<"login" | "register">(searchParams.get("register") === "1" ? "register" : "login")
     const [initialValues] = useState(() => ({
-        username: demoIntent ? "admin" : (localStorage.getItem(LAST_USER_KEY) ?? ""),
+        username: demoIntent ? "userDemo" : (localStorage.getItem(LAST_USER_KEY) ?? ""),
         password: demoIntent ? "demo123" : "",
     }))
 
@@ -49,7 +49,7 @@ export const LoginView: React.FC = () => {
     }
 
     const fillDemo = () => {
-        form.setFieldsValue({ username: "admin", password: "demo123" })
+        form.setFieldsValue({ username: "userDemo", password: "demo123" })
         setServerError(null)
     }
 
@@ -295,7 +295,7 @@ export const LoginView: React.FC = () => {
                                                 isDark ? "text-white/50 hover:text-white/80" : "text-gray-400 hover:text-gray-600"
                                             }`}
                                         >
-                                            Try demo: admin / demo123
+                                            Try demo: userDemo / demo123
                                         </button>
                                     ) : (
                                         <Text type="secondary" className="text-xs">

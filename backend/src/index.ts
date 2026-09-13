@@ -5,9 +5,9 @@ import express, { Express, Request, Response, NextFunction } from "express"
 import { bytesToHex, equalsBytes } from "ethereum-cryptography/utils"
 import { authenticateMiddleware, initMiddleware } from "./middleware"
 import { requireAdmin } from "./guards"
-import { ADMIN_USERNAME } from "./credentials"
+import { ADMIN_USERNAME, DEMO_USERNAME, isReservedUsername } from "./credentials"
 import { getUser, createUser, listUsers } from "./database"
-import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS } from "./demoData"
+import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS, ensureDemoPopulated } from "./demoData"
 import { invalidateUserCache } from "./utils"
 import { dataRouter } from "./databaseRouter"
 import { Secret, sign, SignOptions, verify } from "jsonwebtoken"
@@ -262,6 +262,20 @@ app.all("/login", async (req: Request, res: Response, next: NextFunction) => {
     const { username, password } = req.body
     if (username && password) {
         if (await authenticate(username, password)) {
+            // The shared sample account exists on a fresh deployment but has no
+            // rows yet, so generate them on the first sign-in — idempotent, and
+            // never on the boot path. A failed seed must not block the sign-in.
+            if (username === DEMO_USERNAME) {
+                try {
+                    await ensureDemoPopulated(username)
+                    // authenticate() cached a session while the account still
+                    // looked empty; drop it so the Settings status and up-time
+                    // derive from the seeded data.
+                    delete users[username]
+                } catch (err) {
+                    console.error("Demo data seeding failed:", err)
+                }
+            }
             // To user Login
             const user = await ensureUserSession(username)
             if (!user) return res.status(400).json({ error: "Failed to create a session" })
@@ -297,6 +311,9 @@ app.post("/register", async (req: Request, res: Response) => {
         return res.status(400).json({ error: "Username must be 3-32 characters long" })
     if (!/^[a-zA-Z0-9_.-]+$/.test(username))
         return res.status(400).json({ error: "Username may only contain letters, numbers, '_', '.' and '-'" })
+    // The bootstrap accounts belong to the server: `admin` operates this
+    // deployment and `userDemo` is the advertised sample account.
+    if (isReservedUsername(username)) return res.status(400).json({ error: "That username is reserved" })
 
     try {
         // password arrives already keccak-hashed by the client (same as /login)

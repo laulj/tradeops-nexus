@@ -1,7 +1,7 @@
 import { Database } from "sqlite"
 import { keccak256 } from "ethereum-cryptography/keccak"
 import { utf8ToBytes } from "ethereum-cryptography/utils"
-import { database } from "./database"
+import { database, getUser } from "./database"
 import { insertAddressIfNotExists, database_createNewTables } from "./databaseRouter"
 import { spotFutureDatabase_createTablesIfNotExists } from "./futureDatabaseRouter"
 import { fundingRateDatabase_createTablesIfNotExists } from "./fundingRateDatabaseRouter"
@@ -697,4 +697,27 @@ export const removeUserData = async (username: string) => {
         }
     }
     if (database.db) await database.db.run(`DELETE FROM users WHERE username = ?`, [username])
+}
+
+// ── Seeding an existing account exactly once ────────────────────────────────
+// Single-flight: two concurrent sign-ins to the shared sample account must not
+// both run the generator (that would double the rows and the request cost).
+const demoSeedInFlight = new Map<string, Promise<void>>()
+
+/**
+ * Populates an account's demo data once. `populateDemoData` records
+ * `demo_populated = 1` but never checks it, and parts of the generator use
+ * generated ids, so a second run would duplicate rows — every caller goes
+ * through here so the guard and the single-flight are in one place.
+ */
+export const ensureDemoPopulated = async (username: string): Promise<void> => {
+    const record = await getUser(username)
+    if (!record || record.demo_populated) return
+
+    const inFlight = demoSeedInFlight.get(username)
+    if (inFlight) return inFlight
+
+    const run = populateDemoData(username).finally(() => demoSeedInFlight.delete(username))
+    demoSeedInFlight.set(username, run)
+    return run
 }
