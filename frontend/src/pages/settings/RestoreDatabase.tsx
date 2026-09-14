@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { App, Button, Flex, Select, Typography, Upload } from "antd"
+import { App, Button, Select, Typography, Upload } from "antd"
 import type { GetProp, UploadFile, UploadProps } from "antd"
 import { DataIcon, ExportIcon } from "@/components/icons/nexus"
 import { Panel } from "@/components/ui"
@@ -64,8 +64,7 @@ export const RestoreDatabase: React.FC = () => {
         if (!selected) return
         modal.confirm({
             title: `Replace the ${target} database?`,
-            content:
-                "The current file is snapshotted first, and the replacement is applied when the service restarts — nothing changes until then.",
+            content: "The current file is snapshotted first, and the replacement is applied when the service restarts — nothing changes until then.",
             okText: "Replace",
             okButtonProps: { danger: true },
             onOk: () => runRestore(),
@@ -77,17 +76,21 @@ export const RestoreDatabase: React.FC = () => {
         maxCount: 1,
         fileList,
         onRemove: () => setFileList([]),
-        beforeUpload: (file) => {
+        beforeUpload: () => {
             // Held locally until the admin confirms; the upload is ours to send.
-            setFileList([{ ...file, originFileObj: file } as UploadFile])
+
             return false
+        },
+        onChange(info) {
+            setFileList(info.fileList)
         },
     }
 
     return (
         <div className="mb-3">
+            {/* {contextHolder} */}
             <Panel label="Restore database">
-                <Flex gap="middle" wrap align="center" className="mb-3">
+                <div className="flex flex-col justify-start items-start gap-3 mb-3">
                     <Select
                         value={target}
                         onChange={(value) => setTarget(value)}
@@ -95,23 +98,25 @@ export const RestoreDatabase: React.FC = () => {
                         style={{ minWidth: 280 }}
                         aria-label="Database to restore"
                     />
-                    <Upload {...props}>
-                        <Button icon={<DataIcon size={14} />}>Select .db file</Button>
-                    </Upload>
-                    <Button
-                        danger
-                        type="primary"
-                        icon={<ExportIcon size={14} className="rotate-180" />}
-                        onClick={confirmRestore}
-                        disabled={!selected}
-                        loading={uploading}
-                    >
-                        Stage restore
-                    </Button>
-                </Flex>
-                <Text type="secondary" className="block text-xs">
-                    The file is verified with SQLite&apos;s integrity check before anything is staged, and the current
-                    database is snapshotted to <Text code>backups/</Text> so the restore can be undone. A restart applies it.
+                    <div className="flex flex-row gap-3">
+                        <Upload {...props}>
+                            <Button icon={<DataIcon size={14} />}>Select .db file</Button>
+                        </Upload>
+                        <Button
+                            danger
+                            type="primary"
+                            icon={<ExportIcon size={14} className="rotate-180" />}
+                            onClick={confirmRestore}
+                            disabled={!selected}
+                            loading={uploading}
+                        >
+                            Stage restore
+                        </Button>
+                    </div>
+                </div>
+                <Text type="secondary" className="block !text-xs">
+                    The file is verified with SQLite&apos;s integrity check before anything is staged, and the current database is snapshotted to{" "}
+                    <Text code>backups/</Text> so the restore can be undone. A restart applies it.
                 </Text>
             </Panel>
         </div>

@@ -13,6 +13,7 @@ import {
 } from "./dbMigrations"
 import { ADMIN_USERNAME, adminPassword, DEMO_USERNAME, demoPassword } from "./credentials"
 import { maxDbMegabytes } from "./limits"
+import { ensureColumn } from "./schemaMigrations"
 sqlite3.verbose()
 
 export interface data {
@@ -546,10 +547,15 @@ export var database = {
         }
     },
     closeDB: async () => {
-        if (database.db) await database.db.close()
-        if (database.db2) await database.db2.close()
-        if (database.spotFutureDB) await database.spotFutureDB.close()
-        if (database.fundingRateDB) await database.fundingRateDB.close()
+        // Drop the handles before closing them: initMiddleware re-initializes when
+        // the configured paths change and calls this first, so closing twice has to
+        // be harmless (and a second close would throw SQLITE_MISUSE).
+        const handles = [database.db, database.db2, database.spotFutureDB, database.fundingRateDB]
+        database.db = undefined
+        database.db2 = undefined
+        database.spotFutureDB = undefined
+        database.fundingRateDB = undefined
+        for (const handle of handles) if (handle) await handle.close()
     },
 }
 export const convertType = function (value: string) {
@@ -745,17 +751,15 @@ export const ensureUsersTable = async (db: Database) => {
         created_at INTEGER NOT NULL,
         demo_populated INTEGER NOT NULL DEFAULT 0
     );`)
-    // Idempotent migration for databases created before the demo flag existed.
-    const cols = (await db.all(`PRAGMA table_info("users")`)) as { name: string }[]
-    if (!cols.some((c) => c.name === "demo_populated")) {
-        await db.exec(`ALTER TABLE users ADD COLUMN demo_populated INTEGER NOT NULL DEFAULT 0`)
-    }
+    // Idempotent migrations for the columns added after this table existed. Both
+    // go through ensureColumn, which tolerates the other connection adding the
+    // column first — two overlapping initializations of one file used to fail
+    // here with "duplicate column name: demo_populated".
+    await ensureColumn(db, "users", "demo_populated", "INTEGER NOT NULL DEFAULT 0")
     // Playground sessions expire; NULL means a permanent account. The deadline
     // lives in the database rather than in a timer because the process restarts
     // on every deploy — an in-memory timer would silently leak accounts.
-    if (!cols.some((c) => c.name === "expires_at")) {
-        await db.exec(`ALTER TABLE users ADD COLUMN expires_at INTEGER`)
-    }
+    await ensureColumn(db, "users", "expires_at", "INTEGER")
     await ensureBootstrapAccount(db, ADMIN_USERNAME, adminPassword(), "ADMIN_PASSWORD")
     // The shared sample account is created here but left empty: its rows are
     // generated on first sign-in (see ensureDemoPopulated) so a fresh deployment
@@ -949,10 +953,10 @@ export const migrateAddUsernameColumn = async (db: Database) => {
         `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'users'`,
     )) as { name: string }[]
     for (const { name } of tables) {
-        const cols = (await db.all(`PRAGMA table_info("${name}")`)) as { name: string }[]
-        if (!cols.some((c) => c.name === "username")) {
-            await db.exec(`ALTER TABLE "${name}" ADD COLUMN username TEXT NOT NULL DEFAULT 'admin'`)
-        }
+        // Through ensureColumn rather than a read-then-ALTER: two initializations
+        // of one file racing each other both saw the column missing, and the loser
+        // failed its request with `duplicate column name: username`.
+        await ensureColumn(db, name, "username", "TEXT NOT NULL DEFAULT 'admin'")
     }
 }
 

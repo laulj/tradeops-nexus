@@ -65,4 +65,37 @@ describe("schema migration", () => {
         }
         raw.close()
     })
+
+    // Two overlapping initializations of one file: a first page load firing
+    // several requests at once (initMiddleware re-opened the databases per
+    // request), two cluster workers, or the old and new process during a nodemon
+    // restart. Both read the old schema and both try to add the column, so the
+    // loser used to fail its request with "duplicate column name: username".
+    it("survives two overlapping initializations of the same fresh file", async () => {
+        const freshPath = path.join(dir, "overlap.db")
+        const seed = await openDb(freshPath)
+        // `query` runs the statement through the driver's `all`, which is enough
+        // for DDL and avoids a second promisified helper.
+        for (const ddl of [
+            `CREATE TABLE cexTxs (orderId TEXT UNIQUE, tokenIn TEXT NOT NULL, tokenOut TEXT NOT NULL)`,
+            `CREATE TABLE dexTxs (txHash TEXT UNIQUE, tokenIn TEXT NOT NULL, tokenOut TEXT NOT NULL)`,
+            `CREATE TABLE transactions (timestamp TEXT NOT NULL, address TEXT NOT NULL, cexId TEXT UNIQUE, dexId TEXT UNIQUE)`,
+            `CREATE TABLE accounts (address TEXT UNIQUE)`,
+            `CREATE TABLE ethTxs (orderId TEXT UNIQUE, txHash TEXT UNIQUE, amount REAL NOT NULL, ratio REAL NOT NULL)`,
+            `CREATE TABLE usdcTxs (orderId TEXT UNIQUE, txHash TEXT UNIQUE, amount REAL NOT NULL, ratio REAL NOT NULL)`,
+        ]) {
+            await query(seed, ddl)
+        }
+        seed.close()
+
+        const [a, b] = await Promise.all([initDatabase(freshPath, "spot"), initDatabase(freshPath, "spot")])
+        await Promise.all([a.close(), b.close()])
+
+        const raw = await openDb(freshPath)
+        for (const name of ["cexTxs", "dexTxs", "transactions", "accounts", "ethTxs", "usdcTxs"]) {
+            const cols = await query(raw, `PRAGMA table_info("${name}")`)
+            expect(cols.map((c: any) => c.name), `table ${name}`).toContain("username")
+        }
+        raw.close()
+    })
 })

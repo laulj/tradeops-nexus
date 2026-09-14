@@ -775,7 +775,7 @@ dataRouter.post("/profits-details/pairing/batch", async (req: Request, res: Resp
 dataRouter.post("/profits-details/pairing/aggregated/batch", async (req: Request, res: Response) => {
     const db = database.db as Database
     const username = req.user!
-    // console.log("/profits-details/pairing/aggregated/batch", req.body.pairings)
+    console.log("/profits-details/pairing/aggregated/batch", req.body.pairings)
     const pairings = req.body.pairings as pairing[] | undefined
     const interval = req.body.interval
     const address = req.body.address

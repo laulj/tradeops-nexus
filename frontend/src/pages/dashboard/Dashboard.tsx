@@ -254,7 +254,7 @@ export const Dashboard: FC<{
     }))
 
     const windowTotal = totalMetrics[tradeTypes.total][activeSlice]
-
+    console.log("profitData", profitData)
     return (
         <div className="flex flex-col gap-3 text-left sm:gap-4">
             {/* ── Metric tiles ─────────────────────────────────────────────── */}
@@ -304,7 +304,13 @@ export const Dashboard: FC<{
                         </span>
                     }
                 >
-                    <BarChart theme={theme} globalToken={globalToken} data={profitData?.[tradeTypes.total]?.["USDC"] ?? []} />
+                    {profitData ? (
+                        <BarChart theme={theme} globalToken={globalToken} data={profitData?.[tradeTypes.total]?.["USDC"] ?? []} />
+                    ) : (
+                        <div className="grid h-[200px] place-items-center">
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No address data" />
+                        </div>
+                    )}
                 </Panel>
 
                 <Panel
@@ -371,7 +377,7 @@ export const Dashboard: FC<{
                     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                         <div className="nexus-tile rounded-lg p-3">
                             <SectionLabel className="mb-2">Profits</SectionLabel>
-                            <BarChart theme={theme} globalToken={globalToken} data={AddressSpecificProfitData} />
+                            <BarChart theme={theme} globalToken={globalToken} data={AddressSpecificProfitData ?? []} />
                         </div>
                         <div className="nexus-tile rounded-lg p-3">
                             <SectionLabel className="mb-2">Balance</SectionLabel>

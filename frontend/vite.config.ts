@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config"
 import react, { reactCompilerPreset } from "@vitejs/plugin-react"
 import babel from "@rolldown/plugin-babel"
 import tailwindcss from "@tailwindcss/vite"
+import { API_PREFIXES } from "./src/api/prefixes.ts"
 
 // Serve the SPA for top-level navigations (Accept: text/html) while still
 // proxying real API calls (fetch/XHR). Without this, visiting /login directly
@@ -45,12 +46,11 @@ export default defineConfig(({ mode }) => {
     const backendTarget = env.VITE_BACKEND_TARGET || process.env.VITE_BACKEND_TARGET || "http://localhost:8080"
 
     // Every API prefix the frontend calls is proxied to the backend so the browser
-    // only ever talks to the same origin (no insecure cross-origin requests).
+    // only ever talks to the same origin (no insecure cross-origin requests). The
+    // list lives beside the API client (src/api/prefixes.ts) so prefixes.test.ts
+    // can compare it against the calls the client actually makes.
     const apiProxy: Record<string, ProxyOptions> = Object.fromEntries(
-        ["/login", "/register", "/logout", "/status", "/users", "/data"].map((prefix) => [
-            prefix,
-            { target: backendTarget, changeOrigin: true, bypass: spaFallback },
-        ]),
+        API_PREFIXES.map((prefix) => [prefix, { target: backendTarget, changeOrigin: true, bypass: spaFallback }]),
     )
 
     // The docs routes are served by the API in production, so the dev and preview
