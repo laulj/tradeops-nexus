@@ -117,11 +117,31 @@ For bulk work without the UI, Render's SSH + `scp` (or `magic-wormhole`) moves f
 
 ## API
 
-The HTTP surface is described in [`docs/openapi.json`](docs/openapi.json) — an OpenAPI 3.1
-document covering authentication, the account endpoints, the admin endpoints and every
-`/data` read the dashboard makes. The API serves that same file at `GET /openapi.json`
-(ETag'd, five-minute cache), so tooling can fetch it without cloning the repository. GitHub
-renders the file in place, as do
+The API is documented in [`docs/openapi.json`](docs/openapi.json) — an OpenAPI 3.1 document
+covering authentication, the account endpoints, the admin endpoints and every `/data` read
+the dashboard makes. The deployment serves it in both forms:
+
+| URL | What you get | What it costs |
+| --- | --- | --- |
+| [`/docs`](https://tradeops-nexus.onrender.com/docs) | the rendered, searchable reference | ~3 KB to open; ~1 MB once, when you press the button |
+| [`/openapi.json`](https://tradeops-nexus.onrender.com/openapi.json) | the document itself — ETag'd, five-minute cache, `304` on repeat | 6 KB gzipped |
+
+The reference is rendered by [Scalar](https://scalar.com) (MIT), which is *bigger than the
+entire dashboard*, so `/docs` is a separate Vite entry: it paints a small shell and fetches
+the renderer **and its stylesheet** only when asked — the package's module entry imports
+neither, so both are loaded explicitly. The chunks are content-hashed and cached for a year,
+so a repeat visit loads them without prompting. `frontend/scripts/check-bundle-size.mjs`
+budgets the two entries separately, and because the split is by *reachability*, importing the
+renderer from app code would move it into the dashboard's budget, where it cannot fit; the
+same script fails if the reference's stylesheet ever goes missing. Anonymous visitors are
+served the bandwidth-saving page in place of `/docs` and `/openapi.json` once the deployment
+is over its budget, exactly like the rest of the public surface.
+
+Both paths work locally too: `pnpm --dir frontend dev` serves `/docs` (its dev server
+rewrites that URL to the `docs.html` entry) and proxies `/openapi.json` to the API, so the
+reference can be developed without producing a production build first.
+
+GitHub renders the file in place as well, as do
 [Swagger Editor](https://editor.swagger.io) and Redoc (`npx @redocly/cli preview-docs docs/openapi.json`).
 
 It is hand-written, and kept honest by `backend/src/__tests__/openapi.test.ts`: the test
@@ -203,7 +223,7 @@ Copy `frontend/.env.example` to `frontend/.env.local` to override the frontend v
 | `MAX_RESTORE_MB` / `RESTORE_RATE_MAX` | backend | `320` / `2` | Restore upload ceiling and hourly allowance |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_AUTH_MAX` / `RATE_LIMIT_PLAYGROUND_MAX` | backend | `300` / `30` / `10` | Requests per minute per client (API, auth, playground) |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_DISABLED` | backend | `60000` / _off_ | Window length; `1` disables limiting (the test suite uses this) |
-| `EGRESS_INCLUDED_GB` / `EGRESS_WARN_GB` / `EGRESS_DEGRADE_GB` / `EGRESS_HARD_CEILING_GB` | backend | `5` / `3.5` / `5` / `10` | Outbound-bandwidth tiers: warn, degrade, floor |
+| `EGRESS_INCLUDED_GB` / `EGRESS_WARN_GB` / `EGRESS_DEGRADE_GB` / `EGRESS_HARD_CEILING_GB` | backend | `5` / `3.5` / `5` / `10` | Outbound-bandwidth tiers: warn, degrade, floor. A value of `0` is treated as unset (the default applies), so lower a tier with a small positive number |
 | `EGRESS_BURST_GB_PER_HOUR` | backend | `2` | Bytes in a rolling hour that jump straight to degrade |
 | `EGRESS_OVERHEAD_FACTOR` | backend | `1.1` | Calibrates our payload count against the host's billing |
 | `EGRESS_ENABLED` / `EGRESS_FLUSH_MS` | backend | _on_ / `30000` | Meter kill switch and how often the total is persisted |
@@ -234,6 +254,8 @@ Database paths resolve relative to the backend's working directory (`backend/`),
 |   |-- db/                      runtime SQLite files (git-ignored, .gitkeep only)
 |   `-- dist/                    compiled API (git-ignored, built by pnpm build)
 |-- frontend/                    React + Vite SPA
+|   |-- docs.html                second entry — the /docs API reference shell
+|   |-- src/docs/                the /docs page: loader, styles, tests
 |   |-- src/app/                 shell, theme, providers, routing
 |   |-- src/pages/               landing, login, dashboard, positions, profit, balance, admin
 |   |-- src/components/          UI kit and icons
@@ -266,9 +288,14 @@ pnpm --dir frontend test && pnpm --dir backend test
 
 The backend suite includes `src/__tests__/openapi.test.ts`, which re-derives the Express
 route table from the source that registers it. It fails if `docs/openapi.json` describes a
-route that no longer exists, if a new route is neither documented nor excused, or if
-anything but `/login`, `/register` and `/playground/session` becomes reachable without a
-token.
+route that no longer exists, if a new route is neither documented nor excused, or if the set
+of operations reachable without a token grows past the one recorded there (`/login`,
+`/register`, `/playground/session`, `/docs`, `/openapi.json`).
+
+The frontend build is guarded as well: `pnpm --dir frontend check:size` walks the two entries
+and fails if either the dashboard (`BUNDLE_BUDGET_BYTES`, 1.25 MiB gzipped) or the API
+reference (`DOCS_BUDGET_BYTES`, 1.5 MiB) outgrows its budget, if any source map sneaks into
+`dist`, or if the `docs.html` entry stops being emitted.
 
 ## Deployment
 

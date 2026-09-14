@@ -474,6 +474,7 @@ const FOOTER_LINKS = [
     { label: "Platform", href: "#platform" },
     { label: "Arbitrage", href: "#arbitrage" },
     { label: "Get started", href: "#get-started" },
+    { label: "API reference", href: "/docs" },
 ]
 
 const Footer: React.FC = () => {

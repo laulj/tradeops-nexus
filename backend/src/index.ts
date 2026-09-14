@@ -565,7 +565,27 @@ const OPENAPI_SPEC = path.join(__dirname, "../../docs/openapi.json")
 
 app.get("/openapi.json", (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "public, max-age=300")
-    res.sendFile(OPENAPI_SPEC)
+    res.sendFile(OPENAPI_SPEC, (error) => {
+        if (!error || res.headersSent) return
+        // The document ships with the repository, so this is a broken deploy:
+        // answer 503 instead of an HTML stack trace.
+        res.status(503).json({ error: "The API specification is unavailable on this deployment" })
+    })
+})
+
+// The rendered reference at /docs. A separate HTML entry (frontend/docs.html)
+// rather than a route into the SPA: the renderer it loads on demand is larger
+// than the whole dashboard, and keeping it outside the app's chunk graph is what
+// `frontend/scripts/check-bundle-size.mjs` enforces.
+const DOCS_PAGE = path.join(SPA_DIR, "docs.html")
+
+app.get("/docs", (_req: Request, res: Response) => {
+    res.sendFile(DOCS_PAGE, (error) => {
+        if (!error || res.headersSent) return
+        // A checkout without a frontend build (CI's backend job, for one) has no
+        // docs page. Say so plainly.
+        res.status(404).type("text").send("The API reference page is not part of this build.")
+    })
 })
 
 app.get("/", (req: Request, res: Response) => {

@@ -1,0 +1,8 @@
+# pnpm workspace settings for the frontend package.
+#
+# vue-demi's postinstall only selects a Vue 2/3 shim. The /docs page loads
+# Scalar's prebuilt standalone bundle, which does not need it, so the script is
+# refused explicitly — otherwise `pnpm install --frozen-lockfile` (exactly what
+# CI runs) exits non-zero with ERR_PNPM_IGNORED_BUILDS.
+allowBuilds:
+    vue-demi: false

@@ -1,4 +1,4 @@
-import { readFileSync } from "fs"
+import { existsSync, readFileSync } from "fs"
 import path from "path"
 import request from "supertest"
 import { describe, expect, it } from "vitest"
@@ -16,6 +16,7 @@ import { app } from "../index"
  */
 
 const REPO_SPEC = path.join(__dirname, "..", "..", "..", "docs", "openapi.json")
+const DOCS_PAGE = path.join(__dirname, "..", "..", "..", "frontend", "dist", "docs.html")
 const repoSpec = JSON.parse(readFileSync(REPO_SPEC, "utf8")) as unknown
 
 describe("GET /openapi.json", () => {
@@ -44,5 +45,27 @@ describe("GET /openapi.json", () => {
         // The document is public in the repository already, and it is only useful
         // to an integrator who does not have an account yet.
         expect((await request(app).get("/openapi.json")).status).not.toBe(401)
+    })
+})
+
+describe("GET /docs", () => {
+    it("serves the reference shell, without its renderer", async () => {
+        if (!existsSync(DOCS_PAGE)) {
+            // CI's backend job runs without a frontend build, so the route says so
+            // rather than failing with a stack trace.
+            expect((await request(app).get("/docs")).status).toBe(404)
+            return
+        }
+
+        const res = await request(app).get("/docs")
+
+        expect(res.status).toBe(200)
+        expect(res.headers["content-type"]).toContain("text/html")
+        expect(res.text).toContain('id="docs-load"')
+        // The shell must reference its own entry chunk, or the page cannot boot…
+        expect(res.text).toMatch(/\/assets\/docs-[\w-]+\.js/)
+        // …and must not pull the renderer as a script: fetching ~1 MB before the
+        // button is pressed is exactly what this page avoids.
+        expect(res.text).not.toMatch(/src="[^"]*scalar[^"]*"/i)
     })
 })

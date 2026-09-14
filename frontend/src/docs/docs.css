@@ -1,0 +1,177 @@
+/* The /docs shell. Deliberately tiny: system fonts (no third-party font fetch),
+   no framework, and only the handful of rules needed to frame the reference.
+
+   Every rule below is scoped to `.docs-shell`, and that is load-bearing rather
+   than tidy. Scalar writes its own rules at *element* specificity — its buttons
+   are `:where(.scalar-app) button`, which scores (0,0,1) — so a rule of ours like
+   `.docs button` (0,1,1) outranks it and painted Scalar's controls with the
+   shell's fill: white glyphs on light green. `#docs-target` sits outside the
+   `.docs-shell` subtree, so scoping the shell there makes a collision impossible
+   instead of merely unlikely. The `--docs-*` properties are namespaced for the
+   same reason (Scalar defines its own `--scalar-*`). */
+
+:root {
+    --docs-bg: #07080c;
+    --docs-panel: #0d0f16;
+    --docs-border: rgba(255, 255, 255, 0.09);
+    --docs-text: #e8eaf0;
+    --docs-muted: #99a1b3;
+    --docs-accent: #7dd3a8;
+    --docs-accent-strong: #95e6c1;
+    --docs-on-accent: #07080c;
+}
+
+html[data-theme="light"] {
+    --docs-bg: #f7f8fa;
+    --docs-panel: #ffffff;
+    --docs-border: rgba(9, 12, 20, 0.1);
+    --docs-text: #14181f;
+    --docs-muted: #5c6675;
+    --docs-accent: #0f7a53;
+    --docs-accent-strong: #0c6647;
+    --docs-on-accent: #ffffff;
+}
+
+body {
+    /* The one page-level rule: the shell's background. */
+    margin: 0;
+    background: var(--docs-bg);
+}
+
+.docs {
+    /* Layout for both halves. The colour and font below are inherited on purpose,
+       so the reference starts from the page's theme before its own stylesheet
+       lands; Scalar sets its own colours on `.scalar-app`. */
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 4rem;
+    color: var(--docs-text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+.docs .reference {
+    /* The mount point: layout only, no colour or typography of any kind. Scalar
+       measures its own layout, and this only keeps an empty container from
+       collapsing to nothing before the click. */
+    min-height: 1px;
+}
+
+.docs-shell .docs-head .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--docs-muted);
+    text-decoration: none;
+    font-size: 0.8rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.docs-shell .brand-mark {
+    display: grid;
+    place-items: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border: 1px solid var(--docs-border);
+    border-radius: 0.5rem;
+    color: var(--docs-accent);
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+}
+
+.docs-shell h1 {
+    margin: 1.75rem 0 0.75rem;
+    font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.4rem);
+    line-height: 1.2;
+}
+
+.docs-shell .lede {
+    margin: 0;
+    max-width: 46rem;
+    color: var(--docs-muted);
+}
+
+.docs-shell .lede code {
+    padding: 0.1rem 0.35rem;
+    border: 1px solid var(--docs-border);
+    border-radius: 0.3rem;
+    font-size: 0.9em;
+}
+
+.docs-shell .cta {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    border: 1px solid var(--docs-border);
+    border-radius: 0.75rem;
+    background: var(--docs-panel);
+}
+
+.docs-shell button {
+    padding: 0.7rem 1.2rem;
+    border: 0;
+    border-radius: 0.5rem;
+    /* The label colour follows the theme with the fill: `--docs-accent` flips from
+       light green to dark green, so a hardcoded text colour would be wrong in one
+       of them. */
+    background: var(--docs-accent);
+    color: var(--docs-on-accent);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.docs-shell button:disabled {
+    cursor: progress;
+    opacity: 0.7;
+}
+
+.docs-shell button:focus-visible,
+.docs-shell a:focus-visible {
+    outline: 2px solid var(--docs-accent);
+    outline-offset: 2px;
+}
+
+.docs-shell .hint {
+    margin: 0.9rem 0 0;
+    color: var(--docs-muted);
+    font-size: 0.85rem;
+}
+
+.docs-shell a {
+    color: var(--docs-accent);
+}
+
+.docs-shell .status:empty {
+    display: none;
+}
+
+.docs-shell .status {
+    margin: 0.9rem 0 0;
+    font-size: 0.85rem;
+}
+
+.docs-shell .status.error {
+    color: #f0857a;
+}
+
+.docs-shell .docs-foot {
+    margin-top: 3rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--docs-border);
+    color: var(--docs-muted);
+    font-size: 0.8rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .docs-shell button {
+        transition: background-color 120ms ease;
+    }
+}
+
+/* Explicit hover fill rather than `filter: brightness()`, which perturbs the
+   label as well as the background. */
+.docs-shell button:hover:not(:disabled) {
+    background: var(--docs-accent-strong);
+}

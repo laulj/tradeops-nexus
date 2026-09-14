@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            name="description"
+            content="TradeOps Nexus API reference — every endpoint the dashboard calls, with the request bodies, the responses and the auth it expects."
+        />
+        <meta name="theme-color" content="#07080c" />
+        <meta name="robots" content="index,follow" />
+        <title>TradeOps Nexus — API reference</title>
+    </head>
+    <body>
+        <script>
+            // Same pre-paint theme bootstrap as the app (a saved explicit choice
+            // wins over the OS preference), so the docs page matches the dashboard
+            // a visitor just came from and never flashes the wrong theme.
+            (function () {
+                try {
+                    var stored = localStorage.getItem("theme");
+                    var mode = stored === "light" || stored === "dark" ? stored : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+                    document.body.classList.add(mode === "dark" ? "dark-theme" : "light");
+                    document.documentElement.setAttribute("data-theme", mode);
+                    document.documentElement.style.colorScheme = mode;
+                } catch (e) {}
+            })();
+        </script>
+
+        <main class="docs">
+            <!-- The shell: everything this page owns. `#docs-target` sits *outside*
+                 this wrapper on purpose — Scalar writes its own rules at element
+                 specificity (`:where(.scalar-app) button` scores (0,0,1)), so an
+                 element-level rule of ours would outrank it. Scoping the shell to a
+                 subtree the renderer never occupies makes that impossible. -->
+            <div class="docs-shell">
+                <header class="docs-head">
+                    <a class="brand" href="/">
+                        <span class="brand-mark">TN</span>
+                        <span>TradeOps Nexus</span>
+                    </a>
+                    <h1>API reference</h1>
+                    <p class="lede">
+                        The HTTP surface behind the dashboard: authentication, the playground, the account and admin
+                        endpoints, and every <code>/data</code> read the charts are built from. Bearer-token auth on
+                        everything data-shaped; queries are POSTed bodies.
+                    </p>
+                </header>
+
+                <section id="docs-cta" class="cta">
+                    <button id="docs-load" type="button">Load the interactive reference</button>
+                    <p class="hint">
+                        About 1 MB, once — the renderer is cached after that. Prefer the raw document?
+                        <a href="/openapi.json">openapi.json</a>.
+                    </p>
+                    <p id="docs-status" class="status" role="status" aria-live="polite"></p>
+                </section>
+
+                <footer class="docs-foot">
+                    <p>
+                        Reference rendered by <a href="https://scalar.com" rel="noreferrer">Scalar</a> (MIT), loaded only
+                        when you ask for it. The document itself is hand-written and validated against the routes by the
+                        test suite.
+                    </p>
+                </footer>
+            </div>
+
+            <div id="docs-target" class="reference"></div>
+        </main>
+
+        <script type="module" src="/src/docs/main.ts"></script>
+    </body>
+</html>
