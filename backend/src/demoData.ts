@@ -710,14 +710,14 @@ const demoSeedInFlight = new Map<string, Promise<void>>()
  * generated ids, so a second run would duplicate rows — every caller goes
  * through here so the guard and the single-flight are in one place.
  */
-export const ensureDemoPopulated = async (username: string): Promise<void> => {
+export const ensureDemoPopulated = async (username: string, windowDays?: number): Promise<void> => {
     const record = await getUser(username)
     if (!record || record.demo_populated) return
 
     const inFlight = demoSeedInFlight.get(username)
     if (inFlight) return inFlight
 
-    const run = populateDemoData(username).finally(() => demoSeedInFlight.delete(username))
+    const run = populateDemoData(username, windowDays).finally(() => demoSeedInFlight.delete(username))
     demoSeedInFlight.set(username, run)
     return run
 }

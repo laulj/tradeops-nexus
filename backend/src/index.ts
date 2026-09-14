@@ -6,8 +6,18 @@ import { bytesToHex, equalsBytes } from "ethereum-cryptography/utils"
 import { authenticateMiddleware, initMiddleware } from "./middleware"
 import { requireAdmin } from "./guards"
 import { ADMIN_USERNAME, DEMO_USERNAME, isReservedUsername } from "./credentials"
-import { getUser, createUser, listUsers } from "./database"
+import { getUser, createUser, listUsers, setUserExpiry, promoteUser } from "./database"
 import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS, ensureDemoPopulated } from "./demoData"
+import {
+    createPlaygroundSession,
+    expirePlaygroundSessions,
+    livePlaygroundSessionCount,
+    maxPlaygroundAccounts,
+    nextPlaygroundExpiry,
+    playgroundEnabled,
+    playgroundSweepMs,
+    playgroundTtlMs,
+} from "./playground"
 import { invalidateUserCache } from "./utils"
 import { dataRouter } from "./databaseRouter"
 import { Secret, sign, SignOptions, verify } from "jsonwebtoken"
@@ -35,6 +45,8 @@ interface User {
     JWT: string[]
     status: Status
     upTime: UpTime
+    /** Playground sessions expire; `null` marks a permanent account. */
+    expiresAt: number | null
 }
 export interface profitIntervalType {
     key: string
@@ -115,6 +127,7 @@ const ensureUserSession = async (username: string): Promise<User | undefined> =>
         JWT: [],
         status: username === ADMIN_USERNAME ? adminStatus : demo ? demoStatusFor(username) : {},
         upTime: username === ADMIN_USERNAME ? adminUpTime : demo ? demoUpTimeFor(username) : {},
+        expiresAt: record.expires_at ?? null,
     }
     return users[username]
 }
@@ -214,10 +227,49 @@ export const getUsernameByJWT = async (token: string): Promise<string | undefine
         if (!username || !users[username]) return undefined
         // Only accept tokens that were issued to this user and not logged out
         if (!users[username].JWT.includes(token)) return undefined
+
+        // Sliding expiry for playground sessions: an active visitor should not be
+        // cut off mid-session, but this stays cheap because the decision is made
+        // from the in-memory deadline and only writes at most once per half-TTL.
+        const session = users[username]
+        const nextExpiry = nextPlaygroundExpiry(session.expiresAt, Date.now(), playgroundTtlMs())
+        if (nextExpiry !== null) {
+            session.expiresAt = nextExpiry
+            void setUserExpiry(username, nextExpiry).catch(() => {})
+        }
         return username
     } catch {
         return undefined
     }
+}
+
+// ── Playground maintenance ──────────────────────────────────────────────────
+// Sweeping is opportunistic rather than scheduled: the process restarts on every
+// deploy (so a timer would be lost) and the work is trivial when there is nothing
+// to do. One sweep at a time, at most once per PLAYGROUND_SWEEP_MS.
+export const sweepPlaygroundSessions = async (): Promise<number> => {
+    const expired = await expirePlaygroundSessions()
+    for (const username of expired) {
+        delete users[username] // in-memory session
+        invalidateUserCache(username) // cached aggregates for that account
+    }
+    if (expired.length > 0) console.log(`INFO -- expired ${expired.length} playground session(s)`)
+    return expired.length
+}
+
+let lastPlaygroundSweep = 0
+let playgroundSweepInFlight = false
+
+const maybeSweepPlaygroundSessions = () => {
+    const now = Date.now()
+    if (playgroundSweepInFlight || now - lastPlaygroundSweep < playgroundSweepMs()) return
+    lastPlaygroundSweep = now
+    playgroundSweepInFlight = true
+    void sweepPlaygroundSessions()
+        .catch((err) => console.error("Playground sweep failed:", err))
+        .finally(() => {
+            playgroundSweepInFlight = false
+        })
 }
 
 // a middleware function with no mount path. This code is executed for every request to the router
@@ -234,6 +286,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
         console.log(`DEBUG -- ${req.method} ${req.originalUrl} - ${duration.toFixed(2)}ms`)
     })
+
+    // Expired playground sessions are cleaned up from traffic rather than a timer.
+    maybeSweepPlaygroundSessions()
     next()
 })
 
@@ -392,6 +447,55 @@ app.get("/logout", authenticateMiddleware, async (req: Request, res: Response) =
     users[username].JWT = users[username].JWT.filter((_token) => _token !== token)
     // invalidatedJWTokens.push(token)
     return res.status(201).send("Logged out")
+})
+
+// ─── PLAYGROUND: ephemeral sessions ─────────────────────────────────────────
+// The visitor gets data without an account, and the account disappears on its
+// own. The expensive part (a few thousand seeded rows) is therefore bounded by
+// concurrency × TTL instead of accumulating. Rate limiting this endpoint is
+// deliberately left to the shared limiter (see rateLimit.ts); today the
+// concurrency cap below is what protects the database.
+app.post("/playground/session", async (_req: Request, res: Response) => {
+    if (!playgroundEnabled()) return res.status(503).json({ error: "The playground is disabled" })
+
+    try {
+        if ((await livePlaygroundSessionCount()) >= maxPlaygroundAccounts()) {
+            return res
+                .status(503)
+                .json({ error: "The playground is at capacity right now — sign in with userDemo instead" })
+        }
+
+        const { username, expiresAt } = await createPlaygroundSession()
+        const user = await ensureUserSession(username)
+        if (!user) return res.status(500).json({ error: "Failed to create a session" })
+
+        const JWTToken = await generateAccessToken("1d", username)
+        user.JWT.push(JWTToken)
+        return res.status(201).json({ accessToken: JWTToken, username, expiresAt, demoPopulated: true })
+    } catch (err) {
+        console.error("Failed to start a playground session:", err)
+        return res.status(500).json({ error: "Failed to start a playground session" })
+    }
+})
+
+// Keep a playground session by giving it a real password; the account then
+// behaves like any other and stops expiring.
+app.post("/playground/keep", authenticateMiddleware, async (req: Request, res: Response) => {
+    const username = req.user
+    if (!username) return res.status(401).json({ error: "Missing token" })
+
+    const record = await getUser(username)
+    if (!record) return res.status(401).json({ error: "User does not exist" })
+    if (record.expires_at === null) return res.status(400).json({ error: "This account is already permanent" })
+
+    // password arrives already keccak-hashed by the client (same as /login).
+    const passwordBytes = Uint8Array.from(Object.values(req.body?.password ?? {}))
+    if (passwordBytes.length === 0) return res.status(400).json({ error: "Password is required" })
+
+    await promoteUser(username, passwordBytes)
+    const session = users[username]
+    if (session) session.expiresAt = null
+    return res.status(200).json({ username, expiresAt: null })
 })
 const createIfNotExists = (username: string, address: Address, symbol?: Symbol) => {
     const user = users[username]

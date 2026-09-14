@@ -749,6 +749,12 @@ export const ensureUsersTable = async (db: Database) => {
     if (!cols.some((c) => c.name === "demo_populated")) {
         await db.exec(`ALTER TABLE users ADD COLUMN demo_populated INTEGER NOT NULL DEFAULT 0`)
     }
+    // Playground sessions expire; NULL means a permanent account. The deadline
+    // lives in the database rather than in a timer because the process restarts
+    // on every deploy — an in-memory timer would silently leak accounts.
+    if (!cols.some((c) => c.name === "expires_at")) {
+        await db.exec(`ALTER TABLE users ADD COLUMN expires_at INTEGER`)
+    }
     await ensureBootstrapAccount(db, ADMIN_USERNAME, adminPassword(), "ADMIN_PASSWORD")
     // The shared sample account is created here but left empty: its rows are
     // generated on first sign-in (see ensureDemoPopulated) so a fresh deployment
@@ -758,11 +764,17 @@ export const ensureUsersTable = async (db: Database) => {
 
 export const getUser = async (
     username: string,
-): Promise<{ username: string; password_hash: Uint8Array; demo_populated: number } | undefined> => {
+): Promise<
+    | { username: string; password_hash: Uint8Array; demo_populated: number; expires_at: number | null }
+    | undefined
+> => {
     if (!database.db) return undefined
-    return (await database.db.get(`SELECT username, password_hash, demo_populated FROM users WHERE username = ?`, [
-        username,
-    ])) as { username: string; password_hash: Uint8Array; demo_populated: number } | undefined
+    return (await database.db.get(
+        `SELECT username, password_hash, demo_populated, expires_at FROM users WHERE username = ?`,
+        [username],
+    )) as
+        | { username: string; password_hash: Uint8Array; demo_populated: number; expires_at: number | null }
+        | undefined
 }
 
 export const createUser = async (username: string, passwordHash: Uint8Array) => {
@@ -774,13 +786,58 @@ export const createUser = async (username: string, passwordHash: Uint8Array) => 
     ])
 }
 
-export const listUsers = async (): Promise<{ username: string; created_at: number; demo_populated: number }[]> => {
+export const listUsers = async (): Promise<
+    { username: string; created_at: number; demo_populated: number; expires_at: number | null }[]
+> => {
     if (!database.db) return []
-    return (await database.db.all(`SELECT username, created_at, demo_populated FROM users ORDER BY username`)) as {
-        username: string
-        created_at: number
-        demo_populated: number
-    }[]
+    return (await database.db.all(
+        `SELECT username, created_at, demo_populated, expires_at FROM users ORDER BY username`,
+    )) as { username: string; created_at: number; demo_populated: number; expires_at: number | null }[]
+}
+
+// ── Playground sessions (accounts with an expiry) ───────────────────────────
+/** Creates an account that is expected to disappear at `expiresAt`. */
+export const createPlaygroundUser = async (username: string, passwordHash: Uint8Array, expiresAt: number) => {
+    if (!database.db) throw new Error("Database not initialized")
+    await database.db.run(`INSERT INTO users (username, password_hash, created_at, expires_at) VALUES (?, ?, ?, ?)`, [
+        username,
+        Buffer.from(passwordHash),
+        Date.now(),
+        expiresAt,
+    ])
+}
+
+/** Oldest expiries first, so a steady drip of sessions is swept even under load. */
+export const listExpiredUsernames = async (now: number, limit: number): Promise<string[]> => {
+    if (!database.db) return []
+    const rows = (await database.db.all(
+        `SELECT username FROM users WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY expires_at LIMIT ?`,
+        [now, limit],
+    )) as { username: string }[]
+    return rows.map((row) => row.username)
+}
+
+/** Live playground sessions, i.e. the ones that occupy the concurrency budget. */
+export const countLivePlaygroundUsers = async (now: number): Promise<number> => {
+    if (!database.db) return 0
+    const row = (await database.db.get(`SELECT COUNT(*) AS c FROM users WHERE expires_at IS NOT NULL AND expires_at > ?`, [
+        now,
+    ])) as { c: number } | undefined
+    return Number(row?.c ?? 0)
+}
+
+export const setUserExpiry = async (username: string, expiresAt: number | null) => {
+    if (!database.db) return
+    await database.db.run(`UPDATE users SET expires_at = ? WHERE username = ?`, [expiresAt, username])
+}
+
+/** Turns a playground session into an ordinary permanent account. */
+export const promoteUser = async (username: string, passwordHash: Uint8Array) => {
+    if (!database.db) throw new Error("Database not initialized")
+    await database.db.run(`UPDATE users SET password_hash = ?, expires_at = NULL WHERE username = ?`, [
+        Buffer.from(passwordHash),
+        username,
+    ])
 }
 
 // Idempotently add the per-user owner column to every data table. Existing rows

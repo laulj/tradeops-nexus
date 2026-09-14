@@ -49,6 +49,22 @@ export const clearDbEnv = () => {
     delete process.env.FUNDING_RATE_DB_PATH
     delete process.env.DEMO_WINDOW_DAYS
     delete process.env.ADMIN_PASSWORD
+    delete process.env.PLAYGROUND_TTL_MS
+    delete process.env.MAX_PLAYGROUND_ACCOUNTS
+    delete process.env.PLAYGROUND_ENABLED
+    delete process.env.PLAYGROUND_WINDOW_DAYS
+    delete process.env.PLAYGROUND_SWEEP_MS
+}
+
+/** Playground knobs, which are read per call so a test can change them mid-run. */
+export const setPlaygroundEnv = (
+    opts: { ttlMs?: number; max?: number; enabled?: boolean; windowDays?: number; sweepMs?: number } = {},
+) => {
+    if (opts.ttlMs !== undefined) process.env.PLAYGROUND_TTL_MS = String(opts.ttlMs)
+    if (opts.max !== undefined) process.env.MAX_PLAYGROUND_ACCOUNTS = String(opts.max)
+    if (opts.enabled !== undefined) process.env.PLAYGROUND_ENABLED = opts.enabled ? "1" : "0"
+    if (opts.windowDays !== undefined) process.env.PLAYGROUND_WINDOW_DAYS = String(opts.windowDays)
+    if (opts.sweepMs !== undefined) process.env.PLAYGROUND_SWEEP_MS = String(opts.sweepMs)
 }
 
 export const removeTempDir = (dir: string) => rmSync(dir, { recursive: true, force: true })
