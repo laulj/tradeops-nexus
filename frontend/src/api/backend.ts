@@ -674,6 +674,75 @@ export const downloadDatabase = async () => {
     }
 }
 
+export type RestoreTarget = "tx" | "spotFuture" | "fRate"
+
+export interface RestoreResult {
+    ok: boolean
+    /** Present when the server accepted and verified the file. */
+    bytes?: number
+    sha256?: string
+    snapshot?: string | null
+    restartRequired?: boolean
+    message?: string
+}
+
+const readErrorMessage = async (response: Response): Promise<string> => {
+    try {
+        const contentType = response.headers.get("content-type") ?? ""
+        if (contentType.includes("application/json")) {
+            const data = (await response.json()) as { error?: unknown }
+            if (typeof data?.error === "string" && data.error.trim()) return data.error
+        } else {
+            const text = await response.text()
+            if (text.trim()) return text
+        }
+    } catch {
+        // Body could not be read — fall through to the generic message.
+    }
+    return `The server rejected the upload (${response.status})`
+}
+
+/** SHA-256 of the chosen file, so the server can verify what actually arrived. */
+const sha256Of = async (file: File): Promise<string | null> => {
+    if (!globalThis.crypto?.subtle) return null
+    const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer())
+    return Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("")
+}
+
+/**
+ * Uploads a database file to be swapped in at the next restart. Sent as a raw
+ * body rather than multipart so the server can stream it straight to disk without
+ * buffering hundreds of megabytes in memory.
+ */
+export const restoreDatabase = async (target: RestoreTarget, file: File): Promise<RestoreResult> => {
+    const queryUrl = baseUrl + `admin/restore/${target}`
+    const token = localStorage.getItem("accessToken")
+
+    try {
+        const checksum = await sha256Of(file)
+        const response = await fetch(queryUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/octet-stream",
+                Authorization: `Bearer ${token}`,
+                ...(checksum ? { "x-content-sha256": checksum } : {}),
+            },
+            body: file,
+        })
+
+        if (response.ok) {
+            const body = (await response.json()) as RestoreResult
+            return { ...body, ok: true }
+        }
+        return { ok: false, message: await readErrorMessage(response) }
+    } catch (error) {
+        console.log(queryUrl, error)
+        return { ok: false, message: "The upload could not reach the server." }
+    }
+}
+
 export const fetchRawData = async (
     pairing: pairing[],
     activeAddress: string,

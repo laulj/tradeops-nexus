@@ -76,6 +76,8 @@ export const clearDbEnv = () => {
         "MAX_DB_MB_AUX",
         "BODY_LIMIT",
         "DATA_BODY_LIMIT",
+        "MAX_RESTORE_MB",
+        "RESTORE_RATE_MAX",
     ]) {
         delete process.env[key]
     }

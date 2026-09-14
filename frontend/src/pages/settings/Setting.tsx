@@ -7,6 +7,7 @@ import { downloadDatabase, getStatus } from "@/api/backend"
 import { UserContext } from "@/app/contexts"
 
 import { Status } from "@/pages/settings/Status"
+import { RestoreDatabase } from "@/pages/settings/RestoreDatabase"
 import { BotIcon, ExportIcon, RefreshIcon, SpinnerIcon } from "@/components/icons/nexus"
 import { Panel, SectionLabel } from "@/components/ui"
 
@@ -48,7 +49,7 @@ export const Setting: FC<{
         }
     }
 
-    return (
+    const systemPanel = (
         <Panel
             label="System"
             right={
@@ -76,5 +77,12 @@ export const Setting: FC<{
             </div>
             <Status addresses={addresses} botStatus={botStatus} />
         </Panel>
+    )
+
+    return (
+        <>
+            {systemPanel}
+            {isAdmin && <RestoreDatabase />}
+        </>
     )
 }

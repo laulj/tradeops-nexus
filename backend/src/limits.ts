@@ -31,3 +31,9 @@ export const smallBodyLimit = (): string => process.env.BODY_LIMIT?.trim() || "2
 
 /** Request bodies under `/data`: the ingestion workers post batched rows. */
 export const dataBodyLimit = (): string => process.env.DATA_BODY_LIMIT?.trim() || "50mb"
+
+/** Largest database file an admin may stage for restore. */
+export const maxRestoreMegabytes = (): number => positive("MAX_RESTORE_MB", 320)
+
+/** Restores are destructive and rare, so the allowance is deliberately tiny. */
+export const restoreRateLimitMax = (): number => positive("RESTORE_RATE_MAX", 2)

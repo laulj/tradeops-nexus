@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express"
 import { getUsernameByJWT, invalidatedJWTokens } from "."
 import { database } from "./database"
 import { spotFutureDatabase_createTablesIfNotExists } from "./futureDatabaseRouter"
+import { applyPendingRestores } from "./backup"
 
 declare global {
     namespace Express {
@@ -17,7 +18,17 @@ declare global {
 //     res.status(500).send("Oops! Something went wrong.")
 // }
 // Initialization middleware
+let restoresApplied = false
+
 export const initMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+    // A staged database restore is applied once per process, before any file is
+    // opened: swapping a database the app already holds open is how SQLite files
+    // get corrupted, and the host restarts the service on every deploy anyway.
+    if (!restoresApplied) {
+        restoresApplied = true
+        await applyPendingRestores().catch((err) => console.error("Failed to apply staged restores:", err))
+    }
+
     // DB paths are overridable via env vars so tests / deployments can isolate
     // the SQLite files (never touch ./db/*.db).
     await database.updateDB(process.env.TX_DB_PATH || "./db/tx.db")

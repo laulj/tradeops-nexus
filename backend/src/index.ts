@@ -19,7 +19,7 @@ import {
     playgroundSweepMs,
     playgroundTtlMs,
 } from "./playground"
-import { apiRateLimiter, authRateLimiter, playgroundRateLimiter } from "./rateLimit"
+import { apiRateLimiter, authRateLimiter, createRateLimiter, playgroundRateLimiter } from "./rateLimit"
 import {
     consumeEgressRollover,
     currentEgressTier,
@@ -38,7 +38,20 @@ import {
     wantsHtmlOrAsset,
 } from "./egress"
 import { alertBootTestMode, alertChannelConfigured, sendAlert, sendAlertChannelTest } from "./alerts"
-import { dataBodyLimit, maxAccounts, maxSessionsPerUser, smallBodyLimit } from "./limits"
+import { dataBodyLimit, maxAccounts, maxSessionsPerUser, restoreRateLimitMax, smallBodyLimit } from "./limits"
+import {
+    RESTORE_TARGETS,
+    ensureBackupDir,
+    inspectSqliteFile,
+    isRestoreTarget,
+    maxRestoreBytes,
+    pendingPathFor,
+    removeFile,
+    sha256File,
+    snapshotPathFor,
+    stageUpload,
+    type RestoreTarget,
+} from "./backup"
 import type { EgressTier } from "./egress"
 import { invalidateUserCache } from "./utils"
 import { dataRouter } from "./databaseRouter"
@@ -325,6 +338,11 @@ app.use(serveSpaFiles(SPA_DIR))
 app.use(["/login", "/register", "/logout", "/status", "/users", "/data"], apiRateLimiter())
 app.use(["/login", "/register"], authRateLimiter())
 app.use("/playground", playgroundRateLimiter())
+// A restore is destructive and rare, so it gets the tightest budget of all.
+app.use(
+    "/admin",
+    createRateLimiter({ name: "admin-restore", windowMs: () => 60 * 60 * 1000, max: restoreRateLimitMax }),
+)
 
 export async function authenticate(name: string, pass: object) {
     if (!name || !pass) return false
@@ -655,6 +673,102 @@ app.post("/register", async (req: Request, res: Response) => {
 app.get("/usage", authenticateMiddleware, requireAdmin, (_req: Request, res: Response) => {
     return res.status(200).json(egressSnapshot())
 })
+
+const databaseForRestoreTarget = (target: RestoreTarget) => {
+    if (target === "tx") return database.db
+    if (target === "spotFuture") return database.spotFutureDB
+    return database.fundingRateDB
+}
+
+/**
+ * Copies the current file into `backups/` before a restore is staged. VACUUM INTO
+ * needs no write lock on the source and produces a compact, consistent single
+ * file with no `-wal`/`-shm` sidecars to keep in step — a plain copy of a live
+ * database would not be safe.
+ */
+const snapshotCurrentDatabase = async (target: RestoreTarget): Promise<string | null> => {
+    const handle = databaseForRestoreTarget(target)
+    if (!handle) return null
+    await ensureBackupDir(target)
+    const destination = snapshotPathFor(target)
+    await handle.exec(`VACUUM INTO '${destination.replace(/'/g, "''")}'`)
+    return destination
+}
+
+// Stage a database file for restore. The upload is streamed to `<db>.pending`,
+// verified with SQLite's own integrity check, and swapped in at the next start —
+// which the host performs on every deploy, so nothing has to be locked here.
+app.post(
+    "/admin/restore/:target",
+    authenticateMiddleware,
+    requireAdmin,
+    async (req: Request, res: Response) => {
+        const target = String(req.params.target ?? "")
+        if (!isRestoreTarget(target)) {
+            return res
+                .status(400)
+                .json({ error: `Unknown restore target. Expected one of: ${RESTORE_TARGETS.join(", ")}` })
+        }
+
+        const pending = pendingPathFor(target)
+
+        try {
+            const { bytes } = await stageUpload(req, pending, maxRestoreBytes())
+            if (bytes === 0) {
+                await removeFile(pending)
+                return res.status(400).json({ error: "The upload was empty" })
+            }
+
+            // Verify before anything is swapped, so a bad upload can only ever
+            // cost a staged file. A file that is not SQLite at all throws here
+            // rather than reporting a status.
+            let inspection
+            try {
+                inspection = await inspectSqliteFile(pending)
+            } catch (inspectionError) {
+                console.error("Rejected a restore: not a SQLite file:", inspectionError)
+                await removeFile(pending)
+                return res.status(422).json({ error: "That file is not a usable SQLite database" })
+            }
+            if (inspection.integrity !== "ok" || inspection.tables.length === 0) {
+                await removeFile(pending)
+                return res.status(422).json({
+                    error: `That file is not a usable SQLite database (integrity: ${inspection.integrity})`,
+                })
+            }
+
+            const digest = await sha256File(pending)
+            const expected = String(req.headers["x-content-sha256"] ?? "")
+                .trim()
+                .toLowerCase()
+            if (expected && expected !== digest) {
+                await removeFile(pending)
+                return res.status(422).json({ error: "The upload did not match the checksum the client sent" })
+            }
+
+            const snapshot = await snapshotCurrentDatabase(target)
+            console.log(
+                `INFO -- staged a ${target} restore (${bytes} bytes, sha256 ${digest.slice(0, 12)}…, snapshot ${snapshot ? snapshot.split("/").pop() : "none"})`,
+            )
+            return res.status(202).json({
+                ok: true,
+                target,
+                bytes,
+                sha256: digest,
+                staged: pending.split("/").pop(),
+                snapshot: snapshot ? snapshot.split("/").pop() : null,
+                restartRequired: true,
+            })
+        } catch (err) {
+            await removeFile(pending)
+            if ((err as { code?: string } | undefined)?.code === "RESTORE_TOO_LARGE") {
+                return res.status(413).json({ error: "That file is larger than this deployment accepts for a restore" })
+            }
+            console.error("Failed to stage a database restore:", err)
+            return res.status(500).json({ error: "Failed to stage the restore" })
+        }
+    },
+)
 
 // List all registered users (username, created_at, demo_populated).
 app.get("/users", authenticateMiddleware, requireAdmin, async (_req: Request, res: Response) => {
