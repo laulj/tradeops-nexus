@@ -70,9 +70,34 @@ export const clearDbEnv = () => {
         "ALERT_EMAIL_PROVIDER",
         "ALERT_EMAIL_TEST_ON_BOOT",
         "ALERT_MAX_PER_RUN",
+        "MAX_ACCOUNTS",
+        "MAX_SESSIONS_PER_USER",
+        "MAX_DB_MB",
+        "MAX_DB_MB_AUX",
+        "BODY_LIMIT",
+        "DATA_BODY_LIMIT",
     ]) {
         delete process.env[key]
     }
+}
+
+/** Resource ceilings; read per call except the body limits (fixed at startup). */
+export const setLimitsEnv = (
+    opts: {
+        maxAccounts?: number
+        maxSessionsPerUser?: number
+        maxDbMb?: number
+        maxDbMbAux?: number
+        bodyLimit?: string
+        dataBodyLimit?: string
+    } = {},
+) => {
+    if (opts.maxAccounts !== undefined) process.env.MAX_ACCOUNTS = String(opts.maxAccounts)
+    if (opts.maxSessionsPerUser !== undefined) process.env.MAX_SESSIONS_PER_USER = String(opts.maxSessionsPerUser)
+    if (opts.maxDbMb !== undefined) process.env.MAX_DB_MB = String(opts.maxDbMb)
+    if (opts.maxDbMbAux !== undefined) process.env.MAX_DB_MB_AUX = String(opts.maxDbMbAux)
+    if (opts.bodyLimit !== undefined) process.env.BODY_LIMIT = opts.bodyLimit
+    if (opts.dataBodyLimit !== undefined) process.env.DATA_BODY_LIMIT = opts.dataBodyLimit
 }
 
 /** Bandwidth-budget knobs; every one is read per call. */

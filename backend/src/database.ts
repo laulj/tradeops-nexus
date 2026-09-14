@@ -12,6 +12,7 @@ import {
     FR_migrateFrom_oldDB as FRMigrateImpl,
 } from "./dbMigrations"
 import { ADMIN_USERNAME, adminPassword, DEMO_USERNAME, demoPassword } from "./credentials"
+import { maxDbMegabytes } from "./limits"
 sqlite3.verbose()
 
 export interface data {
@@ -842,6 +843,55 @@ export const promoteUser = async (username: string, passwordHash: Uint8Array) =>
     ])
 }
 
+// ── Storage ceilings ────────────────────────────────────────────────────────
+// The persistent disk has a fixed size, so the goal is for SQLite to refuse a
+// write (SQLITE_FULL, surfaced to the caller as a 503) rather than the disk
+// filling up and taking the whole service down with it.
+
+const PAGE_SIZE_FALLBACK = 4096
+
+/** Pages allowed in one file, derived from its MB budget and the actual page size. */
+export const maxPageCountFor = async (
+    db: Database,
+    type: "spot" | "spotFuture" | "fundingRate",
+): Promise<number> => {
+    const row = (await db.get(`PRAGMA page_size`)) as { page_size: number } | undefined
+    const pageSize = Number(row?.page_size) || PAGE_SIZE_FALLBACK
+    const pages = Math.floor((maxDbMegabytes(type) * 1024 * 1024) / pageSize)
+    return Math.max(256, pages)
+}
+
+/**
+ * Applied on every open, because these are per connection rather than properties
+ * of the file:
+ *  - WAL lets readers proceed while the single writer works, and survives the
+ *    process being restarted by a deploy;
+ *  - busy_timeout makes a concurrent writer wait instead of failing instantly;
+ *  - synchronous=NORMAL is the recommended pairing with WAL: still crash-safe,
+ *    with far fewer fsyncs during the demo seed and ingestion bursts;
+ *  - max_page_count converts unbounded growth into a clean, catchable error.
+ */
+export const applyStoragePragmas = async (db: Database, type: "spot" | "spotFuture" | "fundingRate") => {
+    await db.exec(`PRAGMA journal_mode = WAL`)
+    await db.exec(`PRAGMA busy_timeout = 5000`)
+    await db.exec(`PRAGMA synchronous = NORMAL`)
+    await db.exec(`PRAGMA max_page_count = ${await maxPageCountFor(db, type)}`)
+}
+
+/** True when SQLite refused a write because a file reached its page ceiling. */
+export const isStorageFullError = (err: unknown): boolean => {
+    const code = (err as { code?: string } | undefined)?.code
+    const message = err instanceof Error ? err.message : String(err ?? "")
+    return code === "SQLITE_FULL" || /SQLITE_FULL|database or disk is full/i.test(message)
+}
+
+/** Every registered account, playground sessions included. */
+export const countUsers = async (): Promise<number> => {
+    if (!database.db) return 0
+    const row = (await database.db.get(`SELECT COUNT(*) AS c FROM users`)) as { c: number } | undefined
+    return Number(row?.c ?? 0)
+}
+
 // ── Operational bookkeeping (tx.db) ─────────────────────────────────────────
 // Two tiny tables: the month's outbound-byte total (so a deploy cannot reset it)
 // and small key/value flags (the alert-channel smoke test). Both are written on a
@@ -968,6 +1018,10 @@ export const initDatabase = async (filename: string, type: "spot" | "spotFuture"
         }
     }
     if (!db) throw new Error("Missing db!")
+
+    // Durability, concurrency and the size ceiling are per connection, so they are
+    // applied on every open rather than once when the file is created.
+    await applyStoragePragmas(db, type)
 
     // Ensure the multi-user schema: users table (tx.db) + username column on
     // every data table (existing rows inherit DEFAULT 'admin').

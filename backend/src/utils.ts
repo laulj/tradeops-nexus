@@ -8,7 +8,7 @@ export type EXCHANGE_NAME = typeof EXCHANGE_NAME
 // Aggregate responses are expensive to build (unpaginated joins plus sorts), so
 // the TTL matches the client's 5-minute React Query staleTime; ingestion writes
 // clear the affected account's entries early (see invalidateUserCache).
-export const aggCache = new NodeCache({ stdTTL: 300 }) // Cache for 5 minutes
+export const aggCache = new NodeCache({ stdTTL: 300, maxKeys: 500, checkperiod: 60 }) 
 
 export type pairing = {
     baseSymbol: string

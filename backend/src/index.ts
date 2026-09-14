@@ -1,12 +1,12 @@
 import path from "path"
 import cors from "cors"
 import { readFile, writeFile } from "fs/promises"
-import express, { Express, Request, Response, NextFunction } from "express"
+import express, { Express, Request, RequestHandler, Response, NextFunction } from "express"
 import { bytesToHex, equalsBytes } from "ethereum-cryptography/utils"
 import { authenticateMiddleware, initMiddleware } from "./middleware"
 import { requireAdmin } from "./guards"
 import { ADMIN_USERNAME, DEMO_USERNAME, isProduction, isReservedUsername } from "./credentials"
-import { database, getUser, createUser, listUsers, setUserExpiry, promoteUser } from "./database"
+import { database, countUsers, getUser, createUser, isStorageFullError, listUsers, setUserExpiry, promoteUser } from "./database"
 import { addEgressBytes, getAlertState, readEgressBytes, setAlertState } from "./database"
 import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS, ensureDemoPopulated } from "./demoData"
 import {
@@ -38,6 +38,7 @@ import {
     wantsHtmlOrAsset,
 } from "./egress"
 import { alertBootTestMode, alertChannelConfigured, sendAlert, sendAlertChannelTest } from "./alerts"
+import { dataBodyLimit, maxAccounts, maxSessionsPerUser, smallBodyLimit } from "./limits"
 import type { EgressTier } from "./egress"
 import { invalidateUserCache } from "./utils"
 import { dataRouter } from "./databaseRouter"
@@ -206,6 +207,14 @@ const setSessionMarker = (res: Response) => {
     })
 }
 
+// Every sign-in appends a token and nothing ever removed them, so a scripted login
+// loop grew this array without bound. Keep only the newest few per account.
+const rememberToken = (user: User, token: string) => {
+    user.JWT.push(token)
+    const max = maxSessionsPerUser()
+    if (user.JWT.length > max) user.JWT.splice(0, user.JWT.length - max)
+}
+
 app.use(cors())
 // ── Outbound bandwidth accounting ───────────────────────────────────────────
 // Bytes are attributed per response from the socket's write-counter delta, which
@@ -245,8 +254,21 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // handlers registered *after* it, so mounting it below express.static() left
 // every asset (including the ~1.5 MB app chunk) uncompressed on the wire.
 app.use(compression())
-app.use(express.json({ limit: "50mb" }))
-app.use(express.urlencoded({ limit: "50mb", extended: true })) // For parsing application/x-www-form-urlencoded
+// Bodies are parsed with two limits: a small one protects every route including
+// the unauthenticated ones, while the ingestion workers — which post batched rows
+// to /data — keep the large one. Previously every route accepted 50 MB, which is
+// a cheap way to make a 512 MB instance work hard.
+const smallJson = express.json({ limit: smallBodyLimit() })
+const smallForm = express.urlencoded({ limit: smallBodyLimit(), extended: true })
+const largeJson = express.json({ limit: dataBodyLimit() })
+const largeForm = express.urlencoded({ limit: dataBodyLimit(), extended: true })
+const unlessData = (parser: RequestHandler): RequestHandler => (req, res, next) =>
+    req.path.startsWith("/data") ? next() : parser(req, res, next)
+
+app.use(unlessData(smallJson))
+app.use(unlessData(smallForm)) // For parsing application/x-www-form-urlencoded
+app.use("/data", largeJson)
+app.use("/data", largeForm)
 
 // ── Bandwidth tier gate ─────────────────────────────────────────────────────
 // Once the budget is spent the public surface shrinks to a ~2 KB page while
@@ -549,7 +571,7 @@ app.all("/login", async (req: Request, res: Response, next: NextFunction) => {
             const user = await ensureUserSession(username)
             if (!user) return res.status(400).json({ error: "Failed to create a session" })
             const JWTToken = await generateAccessToken("1d", username)
-            user.JWT.push(JWTToken)
+            rememberToken(user, JWTToken)
             setSessionMarker(res)
 
             return res.status(200).json({ accessToken: JWTToken, username })
@@ -585,6 +607,11 @@ app.post("/register", async (req: Request, res: Response) => {
     // deployment and `userDemo` is the advertised sample account.
     if (isReservedUsername(username)) return res.status(400).json({ error: "That username is reserved" })
 
+    // Registering seeds thousands of rows, so stop before the disk ceiling is what
+    // refuses the write.
+    if ((await countUsers()) >= maxAccounts())
+        return res.status(503).json({ error: "This deployment has reached its account limit" })
+
     try {
         // password arrives already keccak-hashed by the client (same as /login)
         const passBytes = Uint8Array.from(Object.values(password))
@@ -599,6 +626,9 @@ app.post("/register", async (req: Request, res: Response) => {
             } catch (seedErr) {
                 console.error("Demo data seeding failed, rolling back user:", seedErr)
                 await removeUserData(username)
+                if (isStorageFullError(seedErr)) {
+                    return res.status(503).json({ error: "This deployment is out of storage space" })
+                }
                 return res.status(500).json({ error: "Failed to prepare demo data" })
             }
         }
@@ -607,11 +637,12 @@ app.post("/register", async (req: Request, res: Response) => {
         if (!user) return res.status(500).json({ error: "Failed to create session" })
 
         const JWTToken = await generateAccessToken("1d", username)
-        user.JWT.push(JWTToken)
+        rememberToken(user, JWTToken)
         setSessionMarker(res)
         return res.status(201).json({ accessToken: JWTToken, username, demoPopulated: Boolean(wantsDemoData) })
     } catch (err: any) {
         if (err && err.code === "SQLITE_CONSTRAINT") return res.status(409).json({ error: "Username already exists" })
+        if (isStorageFullError(err)) return res.status(503).json({ error: "This deployment is out of storage space" })
         console.error(err)
         return res.status(500).json({ error: "Failed to register user" })
     }
@@ -692,11 +723,12 @@ app.post("/playground/session", async (_req: Request, res: Response) => {
         if (!user) return res.status(500).json({ error: "Failed to create a session" })
 
         const JWTToken = await generateAccessToken("1d", username)
-        user.JWT.push(JWTToken)
+        rememberToken(user, JWTToken)
         setSessionMarker(res)
         return res.status(201).json({ accessToken: JWTToken, username, expiresAt, demoPopulated: true })
     } catch (err) {
         console.error("Failed to start a playground session:", err)
+        if (isStorageFullError(err)) return res.status(503).json({ error: "This deployment is out of storage space" })
         return res.status(500).json({ error: "Failed to start a playground session" })
     }
 })
