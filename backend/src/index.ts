@@ -45,6 +45,7 @@ import {
     inspectSqliteFile,
     isRestoreTarget,
     maxRestoreBytes,
+    missingRequiredTables,
     pendingPathFor,
     removeFile,
     sha256File,
@@ -778,6 +779,16 @@ app.post(
                     error: `That file is not a usable SQLite database (integrity: ${inspection.integrity})`,
                 })
             }
+            // Integrity only proves it is *a* SQLite database. Requiring the tables
+            // this target actually has stops an unrelated file (a browser profile,
+            // another app's export) from being staged over a live database.
+            const missingTables = missingRequiredTables(target, inspection.tables)
+            if (missingTables.length > 0) {
+                await removeFile(pending)
+                return res.status(422).json({
+                    error: `That file is not a ${target} database (missing: ${missingTables.join(", ")})`,
+                })
+            }
 
             const digest = await sha256File(pending)
             const expected = String(req.headers["x-content-sha256"] ?? "")
@@ -827,7 +838,11 @@ app.get("/users", authenticateMiddleware, requireAdmin, async (_req: Request, re
 app.delete("/users/:username", authenticateMiddleware, requireAdmin, async (req: Request, res: Response) => {
     const target = req.params.username
     if (!target) return res.status(400).json({ error: "Missing username" })
-    if (target === ADMIN_USERNAME) return res.status(400).json({ error: "The admin account cannot be deleted" })
+    // Reserved accounts belong to the deployment: `admin` operates it and
+    // `userDemo` is the advertised sample every new visitor is pointed at. The
+    // playground sweep already refuses both, so this API has to match rather than
+    // letting a single request delete the account the login page advertises.
+    if (isReservedUsername(target)) return res.status(400).json({ error: "Reserved accounts cannot be deleted" })
 
     try {
         await removeUserData(target)

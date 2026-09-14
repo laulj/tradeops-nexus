@@ -31,6 +31,27 @@ export const RESTORE_TARGETS = Object.keys(RESTORE_TARGET_ENV) as RestoreTarget[
 export const isRestoreTarget = (value: string): value is RestoreTarget =>
     (RESTORE_TARGETS as string[]).includes(value)
 
+/**
+ * Application tables a database must contain for a restore to be plausible.
+ *
+ * An integrity check only proves the upload is *a* SQLite database — it says
+ * nothing about whether it is *this* database. Every router creates `transactions`
+ * and `accounts` for all three targets, so requiring them rejects an unrelated
+ * file (a browser profile, another application's export) that would otherwise be
+ * swapped in and leave the API reading a schema it does not know.
+ */
+export const REQUIRED_TABLES: Record<RestoreTarget, readonly string[]> = {
+    tx: ["transactions", "accounts"],
+    spotFuture: ["transactions", "accounts"],
+    fRate: ["transactions", "accounts"],
+}
+
+/** Required tables the inspected file is missing; empty means the shape matches. */
+export const missingRequiredTables = (target: RestoreTarget, tables: readonly string[]): string[] => {
+    const present = new Set(tables.map((t) => t.toLowerCase()))
+    return REQUIRED_TABLES[target].filter((t) => !present.has(t.toLowerCase()))
+}
+
 /** Mirrors the resolution in middleware.ts, so a restore lands where the app reads. */
 export const databasePathFor = (target: RestoreTarget): string =>
     process.env[RESTORE_TARGET_ENV[target]] || DEFAULT_PATHS[target]
@@ -100,7 +121,17 @@ export const exists = async (filePath: string): Promise<boolean> => {
 export const ensureBackupDir = (target: RestoreTarget): Promise<void> =>
     mkdir(backupDirFor(target), { recursive: true }).then(() => undefined)
 
-export const removeFile = (filePath: string): Promise<void> => rm(filePath, { force: true })
+/**
+ * A file together with the WAL sidecars SQLite creates beside it. Opening a file
+ * (the integrity check does) can leave `<path>-wal`/`-shm` behind, so removing the
+ * file alone leaves a stale pair that outlives the database it belonged to — and
+ * makes a staging area look as if something is still pending.
+ */
+const withSidecars = (filePath: string): string[] => [filePath, `${filePath}-wal`, `${filePath}-shm`]
+
+export const removeFile = async (filePath: string): Promise<void> => {
+    await Promise.all(withSidecars(filePath).map((p) => rm(p, { force: true })))
+}
 
 /**
  * WAL keeps its state in `<db>-wal`/`<db>-shm` next to the database. Those files
@@ -177,10 +208,18 @@ export const applyPendingRestores = async (): Promise<RestoreTarget[]> => {
                 )
                 continue
             }
+            const missingTables = missingRequiredTables(target, inspection.tables)
+            if (missingTables.length > 0) {
+                console.error(`Refusing to apply ${path.basename(pending)} (missing tables: ${missingTables.join(", ")})`)
+                continue
+            }
             // Same directory, so the rename is atomic. The stale WAL sidecars have
             // to go with the database they belonged to.
             await rename(pending, databasePathFor(target))
             await removeSidecars(target)
+            // The staged file's own sidecars die with it: the file has just been
+            // renamed away, so anything named after it is now orphaned.
+            await removeFile(pending)
             applied.push(target)
             console.log(`INFO -- restored the ${target} database from a staged file`)
         } catch (err) {

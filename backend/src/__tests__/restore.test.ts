@@ -27,15 +27,28 @@ afterEach(() => {
 
 const adminToken = async (): Promise<string> => (await loginUser(app, "admin", "demo123")).body.accessToken
 
-/** Writes a genuine (tiny) SQLite database, since the endpoint inspects them. */
+/** Writes a genuine (tiny) SQLite database, since the endpoint inspects them.
+ *  It is shaped like a target too: the staging check requires the tables the
+ *  target actually has, not merely consistent SQLite. */
 const makeSqliteFile = async (filePath: string, marker: string): Promise<void> => {
     const db = new sqlite3.Database(filePath)
     await new Promise<void>((resolve, reject) =>
         db.exec(
-            `CREATE TABLE users (username TEXT PRIMARY KEY, created_at INTEGER);
+            `CREATE TABLE transactions (uuid TEXT PRIMARY KEY, timestamp TEXT NOT NULL, address TEXT NOT NULL);
+             CREATE TABLE accounts (address TEXT PRIMARY KEY);
+             CREATE TABLE users (username TEXT PRIMARY KEY, created_at INTEGER);
              INSERT INTO users (username, created_at) VALUES ('${marker}', 1);`,
             (err) => (err ? reject(err) : resolve()),
         ),
+    )
+    await new Promise<void>((resolve, reject) => db.close((err) => (err ? reject(err) : resolve())))
+}
+
+/** A valid SQLite database that is not shaped like any of our targets. */
+const makeUnrelatedSqliteFile = async (filePath: string): Promise<void> => {
+    const db = new sqlite3.Database(filePath)
+    await new Promise<void>((resolve, reject) =>
+        db.exec(`CREATE TABLE bookmarks (id INTEGER PRIMARY KEY, url TEXT);`, (err) => (err ? reject(err) : resolve())),
     )
     await new Promise<void>((resolve, reject) => db.close((err) => (err ? reject(err) : resolve())))
 }
@@ -100,6 +113,25 @@ describe("POST /admin/restore/:target", () => {
             .send(readFileSync(source))
 
         expect(res.status).toBe(422)
+        expect(await exists(pendingPathFor("tx"))).toBe(false)
+    })
+
+    it("rejects a valid database that is not shaped like the target", async () => {
+        // Integrity only proves it is *a* SQLite file — a browser profile passes it —
+        // so the required-table check is what stops an unrelated file from replacing
+        // a live database the API would then be unable to read.
+        const source = path.join(dir, "unrelated.db")
+        await makeUnrelatedSqliteFile(source)
+        const token = await adminToken()
+
+        const res = await request(app)
+            .post("/admin/restore/tx")
+            .set("Authorization", `Bearer ${token}`)
+            .set("Content-Type", "application/octet-stream")
+            .send(readFileSync(source))
+
+        expect(res.status).toBe(422)
+        expect(String(res.body.error)).toContain("missing")
         expect(await exists(pendingPathFor("tx"))).toBe(false)
     })
 

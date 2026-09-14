@@ -232,6 +232,15 @@ describe("populateDemoData / removeUserData", () => {
         fr.close()
     })
 
+    it("refuses to delete a reserved account", async () => {
+        // This is the only function that erases an account from all three databases,
+        // so it must never accept a bootstrap account — whatever the caller believes.
+        await expect(removeUserData("admin")).rejects.toThrow(/reserved/i)
+        await expect(removeUserData("userDemo")).rejects.toThrow(/reserved/i)
+        // `isReservedUsername` is case-insensitive, and so is this guard.
+        await expect(removeUserData("ADMIN")).rejects.toThrow(/reserved/i)
+    })
+
     it("removeUserData deletes every row owned by the user plus the users entry", async () => {
         await removeUserData("alice")
 

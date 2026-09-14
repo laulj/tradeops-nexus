@@ -67,6 +67,13 @@ describe("demo data scoping", () => {
 
         const delAdmin = await request(app).delete(`/users/admin`).set("Authorization", `Bearer ${adminBody.accessToken}`)
         expect(delAdmin.status).toBe(400)
+
+        // `userDemo` is the account the login page advertises and the playground
+        // sweep already refuses to touch it — an admin request must not be able to
+        // delete it either, or the product's advertised demo account disappears.
+        const delDemo = await request(app).delete(`/users/userDemo`).set("Authorization", `Bearer ${adminBody.accessToken}`)
+        expect(delDemo.status).toBe(400)
+        expect(delDemo.body.error).toMatch(/reserved/i)
     })
 })
 

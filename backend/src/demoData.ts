@@ -6,6 +6,7 @@ import { insertAddressIfNotExists, database_createNewTables } from "./databaseRo
 import { spotFutureDatabase_createTablesIfNotExists } from "./futureDatabaseRouter"
 import { fundingRateDatabase_createTablesIfNotExists } from "./fundingRateDatabaseRouter"
 import { EXCHANGE_NAME } from "./utils"
+import { isReservedUsername } from "./credentials"
 
 // The routers type the exchange-name param as the EXCHANGE_NAME tuple; at runtime
 // it is a plain exchange string. This helper bridges that (existing) type quirk.
@@ -684,6 +685,11 @@ export const populateDemoData = async (username: string, windowDays?: number) =>
 // Rollback helper: delete every row owned by `username` in all three DBs plus
 // the users-table entry (used when demo seeding fails partway through).
 export const removeUserData = async (username: string) => {
+    // Belt-and-braces: this deletes every row the account owns in all three
+    // databases plus its `users` row, so it is the one function that must never
+    // be pointed at a bootstrap account. Every current caller already filters
+    // them out, but the blast radius is too large to rely on that alone.
+    if (isReservedUsername(username)) throw new Error(`Refusing to delete the reserved account: ${username}`)
     const dbs = [database.db, database.spotFutureDB, database.fundingRateDB].filter(Boolean) as Database[]
     for (const db of dbs) {
         const tables = (await db.all(
