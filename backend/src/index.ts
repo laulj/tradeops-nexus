@@ -18,6 +18,7 @@ import {
     playgroundSweepMs,
     playgroundTtlMs,
 } from "./playground"
+import { apiRateLimiter, authRateLimiter, playgroundRateLimiter } from "./rateLimit"
 import { invalidateUserCache } from "./utils"
 import { dataRouter } from "./databaseRouter"
 import { Secret, sign, SignOptions, verify } from "jsonwebtoken"
@@ -155,6 +156,10 @@ const statusUpdate = (interval: number = 20 * 60 * 1000) => {
 export var invalidatedJWTokens: string[] = []
 
 export const app: Express = express()
+// Render terminates TLS in front of the service and forwards the client address,
+// so without this every request would appear to come from the proxy and a single
+// rate-limit bucket would throttle all visitors at once.
+app.set("trust proxy", 1)
 export const port = process.env.PORT || 8080
 
 // Built SPA. Vite emits to frontend/dist, and the compiled backend runs from
@@ -179,6 +184,15 @@ app.use(initMiddleware)
 // revalidate so a deploy is picked up on the next request.
 app.use("/assets", serveHashedAssets(SPA_DIR))
 app.use(serveSpaFiles(SPA_DIR))
+
+// ── Rate limiting ───────────────────────────────────────────────────────────
+// Only the API prefixes: static assets are immutably cached and a first page load
+// legitimately fetches a dozen of them, so limiting them would break browsing
+// without protecting anything. `/register` and `/playground` are the expensive
+// paths — each seeds thousands of rows — so they get their own tighter buckets.
+app.use(["/login", "/register", "/logout", "/status", "/users", "/data"], apiRateLimiter())
+app.use(["/login", "/register"], authRateLimiter())
+app.use("/playground", playgroundRateLimiter())
 
 export async function authenticate(name: string, pass: object) {
     if (!name || !pass) return false

@@ -9,5 +9,8 @@ export default defineConfig({
         include: ["src/**/*.test.ts"],
         testTimeout: 20000,
         hookTimeout: 30000,
+        // The suite fires hundreds of requests from one address; the limiter is
+        // exercised deliberately in rateLimit.test.ts instead.
+        env: { RATE_LIMIT_DISABLED: "1" },
     },
 })
