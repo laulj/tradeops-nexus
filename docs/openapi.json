@@ -1,0 +1,802 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "TradeOps Nexus API",
+        "version": "1.0.0",
+        "description": "Express + SQLite API behind the TradeOps Nexus dashboard.\n\nKept honest by `backend/src/__tests__/openapi.test.ts`, which fails when a documented path stops existing or when a new public route appears without documentation. The ingestion writes (`/data/**/update`) are listed under `x-internal-paths`: they belong to a worker that is not part of this repository.\n\nEvery data endpoint requires a bearer token and only ever returns the caller's own rows."
+    },
+    "servers": [
+        { "url": "http://localhost:8080", "description": "Local development (the SPA proxies here by default)" },
+        { "url": "https://tradeops-nexus.onrender.com", "description": "Public demo deployment" }
+    ],
+    "tags": [
+        { "name": "Auth", "description": "Sign-in, registration and the shared sample account" },
+        { "name": "Playground", "description": "Temporary, self-deleting accounts with an expiry" },
+        { "name": "Account", "description": "Session-scoped status of the caller's own book" },
+        { "name": "Admin", "description": "Owner-only: user management, bandwidth usage, database restore" },
+        { "name": "Spot data", "description": "Spot trades, balances and aggregated profit" },
+        { "name": "Perp-futures data", "description": "Spot/perp basis trades, open positions and aggregated profit" },
+        { "name": "Funding-rate data", "description": "Funding-rate spreads, open positions and aggregated profit" }
+    ],
+    "security": [{ "bearerAuth": [] }],
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Token from `POST /login`, `POST /register` or `POST /playground/session`, sent as `Authorization: Bearer <token>`."
+            }
+        },
+        "schemas": {
+            "Error": {
+                "type": "object",
+                "required": ["error"],
+                "properties": { "error": { "type": "string", "example": "Admin access required" } }
+            },
+            "KeccakPassword": {
+                "type": "object",
+                "description": "The password hashed with keccak-256 in the browser and serialised as an object keyed by byte index. The plaintext never reaches the server — which is why this does not look like a string.",
+                "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 255 },
+                "minProperties": 1,
+                "example": { "0": 237, "1": 204, "2": 83 }
+            },
+            "AuthSuccess": {
+                "type": "object",
+                "required": ["accessToken", "username"],
+                "properties": {
+                    "accessToken": { "type": "string" },
+                    "username": { "type": "string", "example": "alice" },
+                    "demoPopulated": { "type": "boolean", "description": "True when the account already had sample data" },
+                    "expiresAt": {
+                        "type": ["integer", "null"],
+                        "description": "Epoch milliseconds for a temporary playground session; `null` for a permanent account"
+                    }
+                }
+            },
+            "Pairing": {
+                "type": "object",
+                "required": ["baseSymbol", "quoteSymbol"],
+                "properties": {
+                    "baseSymbol": { "type": "string", "example": "ETH" },
+                    "quoteSymbol": { "type": "string", "example": "USDC" }
+                }
+            },
+            "AggregateQuery": {
+                "type": "object",
+                "description": "Shared body for the aggregation endpoints. Only `pairings` is required.",
+                "required": ["pairings"],
+                "properties": {
+                    "pairings": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/Pairing" },
+                        "description": "Symbol pairs to aggregate. An empty array is rejected with 400."
+                    },
+                    "address": { "type": "string", "description": "Restrict the result to one wallet address" },
+                    "interval": {
+                        "type": "string",
+                        "description": "Bucket passed to the SQL grouping helper (`getGroupByExpression`), e.g. `day`",
+                        "example": "day"
+                    },
+                    "page": { "type": "integer", "minimum": 1, "default": 1 },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500,
+                        "default": 50,
+                        "description": "Capped at 500 — and clamped to 50 while the deployment is in bandwidth-saving mode"
+                    },
+                    "timestamp_begin": { "type": "string", "description": "Inclusive lower bound", "example": "2025-01-01 00:00:00" },
+                    "timestamp_end": { "type": "string", "description": "Inclusive upper bound", "example": "2025-12-31 23:59:59" },
+                    "countOnly": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Return only the row count. The dashboard's \"Total tx.\" tile uses this so the join and ORDER BY never run"
+                    }
+                }
+            },
+            "Usage": {
+                "type": "object",
+                "description": "Outbound-bandwidth accounting for the current billing period (UTC month).",
+                "properties": {
+                    "period": { "type": "string", "example": "2026-09" },
+                    "bytes": { "type": "integer", "description": "Recorded bytes, scaled by EGRESS_OVERHEAD_FACTOR" },
+                    "tier": { "type": "string", "enum": ["normal", "warn", "degrade", "floor"] },
+                    "hourlyBytes": { "type": "integer" },
+                    "includedBytes": { "type": "integer" },
+                    "warnBytes": { "type": "integer" },
+                    "degradeBytes": { "type": "integer" },
+                    "ceilingBytes": { "type": "integer" }
+                }
+            },
+            "RestoreStaged": {
+                "type": "object",
+                "description": "The upload was verified and staged; the swap itself happens at the next start.",
+                "properties": {
+                    "ok": { "type": "boolean" },
+                    "target": { "type": "string", "enum": ["tx", "spotFuture", "fRate"] },
+                    "bytes": { "type": "integer" },
+                    "sha256": { "type": "string" },
+                    "staged": { "type": "string", "example": "tx.db.pending" },
+                    "snapshot": { "type": ["string", "null"], "description": "Snapshot of the replaced file, inside `backups/`" },
+                    "restartRequired": { "type": "boolean", "example": true }
+                }
+            }
+        },
+        "responses": {
+            "BadRequest": {
+                "description": "Malformed request: a missing or invalid field, or no usable `pairings` in the body. Validating handlers answer with `{ \"error\": … }`; the `/data` aggregation handlers answer with a short plain-text message.",
+                "content": {
+                    "application/json": { "schema": { "$ref": "#/components/schemas/Error" } },
+                    "text/plain": { "schema": { "type": "string" } }
+                }
+            },
+            "Unauthorized": {
+                "description": "Missing, expired or revoked bearer token.",
+                "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            },
+            "Forbidden": {
+                "description": "Only the bootstrap `admin` account may call this.",
+                "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            },
+            "TooManyRequests": {
+                "description": "Rate limited; `Retry-After` carries the seconds until the window resets.",
+                "headers": { "Retry-After": { "schema": { "type": "integer" } } },
+                "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            },
+            "Unavailable": {
+                "description": "The deployment is refusing work to protect itself: storage ceiling reached, account cap full, playground at capacity or disabled, or the bandwidth budget tripped and this route is part of the minimal public surface.",
+                "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            }
+        }
+    },
+    "paths": {
+        "/login": {
+            "post": {
+                "tags": ["Auth"],
+                "summary": "Sign in and receive a bearer token",
+                "description": "Distinguishes an unknown account (401) from a wrong password (400) so the UI can guide the visitor.",
+                "security": [],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["username", "password"],
+                                "properties": {
+                                    "username": { "type": "string" },
+                                    "password": { "$ref": "#/components/schemas/KeccakPassword" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Signed in",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthSuccess" } } }
+                    },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            },
+            "get": {
+                "tags": ["Auth"],
+                "summary": "Serve the sign-in screen, or report the token's validity",
+                "description": "A browser navigation (`Accept: text/html`) receives the SPA; an XHR receives 200 when the bearer token is still valid and 401 otherwise.",
+                "security": [],
+                "responses": {
+                    "200": { "description": "Token valid (XHR), or the SPA was served (navigation)" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" }
+                }
+            }
+        },
+        "/register": {
+            "post": {
+                "tags": ["Auth"],
+                "summary": "Create a permanent account",
+                "description": "Usernames are 3-32 characters of `[a-zA-Z0-9_.-]` and the bootstrap names (`admin`, `userDemo`) are reserved. Registration is refused once `MAX_ACCOUNTS` is reached, because each account owns its own rows.",
+                "security": [],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["username", "password"],
+                                "properties": {
+                                    "username": { "type": "string", "minLength": 3, "maxLength": 32 },
+                                    "password": { "$ref": "#/components/schemas/KeccakPassword" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthSuccess" } } }
+                    },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "409": {
+                        "description": "That username is taken",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+                    },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" },
+                    "503": { "$ref": "#/components/responses/Unavailable" }
+                }
+            }
+        },
+        "/logout": {
+            "get": {
+                "tags": ["Auth"],
+                "summary": "Revoke the presented token",
+                "description": "For a playground session this also deletes the account and the rows it owns.",
+                "responses": {
+                    "201": { "description": "Logged out" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" }
+                }
+            }
+        },
+        "/playground/session": {
+            "post": {
+                "tags": ["Playground"],
+                "summary": "Start a temporary session",
+                "description": "Generates an account (nothing to squat), seeds it with sample data, and returns a token plus the deadline. The account has no usable password and is deleted once the deadline passes. Refused with 503 when `PLAYGROUND_ENABLED=0` or `MAX_PLAYGROUND_ACCOUNTS` sessions are already live.",
+                "security": [],
+                "responses": {
+                    "201": {
+                        "description": "Session created",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthSuccess" } } }
+                    },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" },
+                    "503": { "$ref": "#/components/responses/Unavailable" }
+                }
+            }
+        },
+        "/playground/keep": {
+            "post": {
+                "tags": ["Playground"],
+                "summary": "Turn the session into a permanent account",
+                "description": "Sets a real password and clears the deadline, so the data stops being deleted.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["password"],
+                                "properties": { "password": { "$ref": "#/components/schemas/KeccakPassword" } }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Promoted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "username": { "type": "string" },
+                                        "expiresAt": { "type": "null" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" }
+                }
+            }
+        },
+        "/status": {
+            "get": {
+                "tags": ["Account"],
+                "summary": "Status of every address in the caller's book",
+                "description": "Flags which pairs still have an open position, which is what the dashboard's status column paints.",
+                "responses": {
+                    "200": {
+                        "description": "Status map keyed by address, then symbol",
+                        "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+                    },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            },
+            "post": {
+                "tags": ["Account"],
+                "summary": "Status of the addresses named in the request",
+                "description": "Same map as the GET, narrowed to `data`. The SPA uses this when only the visible page of addresses is on screen.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "data": { "type": "array", "items": { "type": "string" }, "description": "Addresses to inspect" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Status map keyed by address, then symbol",
+                        "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+                    },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/status/uptime": {
+            "get": {
+                "tags": ["Account"],
+                "summary": "How long each position has been open",
+                "parameters": [
+                    { "name": "address", "in": "query", "required": false, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Uptime keyed by symbol", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            },
+            "post": {
+                "tags": ["Account"],
+                "summary": "How long each position has been open, for one address",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["address"],
+                                "properties": { "address": { "type": "string" } }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Uptime keyed by symbol", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/users": {
+            "get": {
+                "tags": ["Admin"],
+                "summary": "List every registered account",
+                "responses": {
+                    "200": {
+                        "description": "Accounts, ordered by username",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "users": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "username": { "type": "string" },
+                                                    "created_at": { "type": "integer" },
+                                                    "demo_populated": { "type": "integer" },
+                                                    "expires_at": { "type": ["integer", "null"] }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "403": { "$ref": "#/components/responses/Forbidden" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/users/{username}": {
+            "delete": {
+                "tags": ["Admin"],
+                "summary": "Delete an account and every row it owns",
+                "parameters": [
+                    { "name": "username", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Deleted" },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "403": { "$ref": "#/components/responses/Forbidden" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/usage": {
+            "get": {
+                "tags": ["Admin"],
+                "summary": "Outbound-bandwidth state for this billing period",
+                "description": "Backs the admin banner. The tier also drives the middleware that trims large responses, so this is the authoritative answer to \"is the deployment in degrade mode?\".",
+                "responses": {
+                    "200": {
+                        "description": "Current snapshot",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Usage" } } }
+                    },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "403": { "$ref": "#/components/responses/Forbidden" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/admin/restore/{target}": {
+            "post": {
+                "tags": ["Admin"],
+                "summary": "Stage a database file for restore",
+                "description": "Streams the body to `<db>.pending`, verifies it with SQLite's `PRAGMA integrity_check`, snapshots the file it will replace into `backups/`, then answers 202. The swap happens at the next start, because replacing a file the process holds open is how SQLite databases get corrupted.",
+                "parameters": [
+                    {
+                        "name": "target",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string", "enum": ["tx", "spotFuture", "fRate"] }
+                    },
+                    {
+                        "name": "x-content-sha256",
+                        "in": "header",
+                        "required": false,
+                        "schema": { "type": "string" },
+                        "description": "Optional SHA-256 of the upload; verified server-side before staging"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
+                    }
+                },
+                "responses": {
+                    "202": {
+                        "description": "Verified and staged",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RestoreStaged" } } }
+                    },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "403": { "$ref": "#/components/responses/Forbidden" },
+                    "413": { "description": "Larger than `MAX_RESTORE_MB`" },
+                    "422": { "description": "Not a usable SQLite database, or the checksum did not match" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/symbols": {
+            "get": {
+                "tags": ["Spot data"],
+                "summary": "Base symbols the caller has spot trades for",
+                "description": "Read from the caller's own `*Txs` tables, so an empty account gets an empty list. `USDC` sorts first.",
+                "responses": {
+                    "200": {
+                        "description": "Symbols, upper-cased",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object", "properties": { "symbols": { "type": "array", "items": { "type": "string" } } } }
+                            }
+                        }
+                    },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/addresses": {
+            "get": {
+                "tags": ["Spot data"],
+                "summary": "Wallet addresses the caller has trades for",
+                "responses": {
+                    "200": {
+                        "description": "Distinct addresses",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object", "properties": { "addresses": { "type": "array", "items": { "type": "string" } } } }
+                            }
+                        }
+                    },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/profits/pairing/aggregated/batch": {
+            "post": {
+                "tags": ["Spot data"],
+                "summary": "Realised spot profit, grouped by pair",
+                "description": "The dashboard's profit tiles. Results are cached per account and dropped by the ingestion writes.",
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AggregateQuery" } } }
+                },
+                "responses": {
+                    "200": { "description": "Aggregated profit per pair", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/profits-details/pairing/batch": {
+            "post": {
+                "tags": ["Spot data"],
+                "summary": "Profit rows behind the per-pair totals",
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AggregateQuery" } } }
+                },
+                "responses": {
+                    "200": { "description": "Paginated trade rows; `countOnly` returns the size of the result set only", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/profits-details/pairing/aggregated/batch": {
+            "post": {
+                "tags": ["Spot data"],
+                "summary": "Profit rows behind the per-pair totals, bucketed by interval",
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AggregateQuery" } } }
+                },
+                "responses": {
+                    "200": { "description": "Aggregated rows for the requested interval", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/balance/symbol/batch": {
+            "post": {
+                "tags": ["Spot data"],
+                "summary": "Balance history for the named symbols",
+                "description": "Unlike its neighbours this endpoint takes plain symbols rather than pairs — the balance tables are per symbol.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["symbols"],
+                                "properties": {
+                                    "symbols": { "type": "array", "items": { "type": "string" }, "example": ["USDC", "ETH"] }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Balance rows keyed by upper-cased symbol",
+                        "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+                    },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/spotFuture/symbols": {
+            "get": {
+                "tags": ["Perp-futures data"],
+                "summary": "Symbols with spot/perp basis trades",
+                "responses": {
+                    "200": {
+                        "description": "Symbols, upper-cased",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object", "properties": { "symbols": { "type": "array", "items": { "type": "string" } } } }
+                            }
+                        }
+                    },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/spotFuture/txs": {
+            "post": {
+                "tags": ["Perp-futures data"],
+                "summary": "Every basis trade in the caller's book",
+                "description": "No request body: the account comes from the token. The exchange legs are joined in, which is why the rows carry `bybit*`, `gate*`, `binance*` … columns.",
+                "responses": {
+                    "200": { "description": "Trade rows", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "additionalProperties": true } } } } },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/spotFuture/openedPositions": {
+            "post": {
+                "tags": ["Perp-futures data"],
+                "summary": "Basis trades that are still open",
+                "description": "No request body. Each row carries one entry per exchange leg, and the funding rows hang off it.",
+                "responses": {
+                    "200": { "description": "Open positions", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "additionalProperties": true } } } } },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/spotFuture/profits-details/pairing/batch": {
+            "post": {
+                "tags": ["Perp-futures data"],
+                "summary": "Basis profit rows behind the per-pair totals",
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AggregateQuery" } } }
+                },
+                "responses": {
+                    "200": { "description": "Paginated rows; `countOnly` returns the size of the result set only", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/spotFuture/profits-details/pairing/aggregated/batch": {
+            "post": {
+                "tags": ["Perp-futures data"],
+                "summary": "Basis profit rows, bucketed by interval",
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AggregateQuery" } } }
+                },
+                "responses": {
+                    "200": { "description": "Aggregated rows for the requested interval", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/fRate/symbols": {
+            "get": {
+                "tags": ["Funding-rate data"],
+                "summary": "Symbols with funding-rate spreads",
+                "responses": {
+                    "200": {
+                        "description": "Symbols, upper-cased",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object", "properties": { "symbols": { "type": "array", "items": { "type": "string" } } } }
+                            }
+                        }
+                    },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/fRate/txs": {
+            "post": {
+                "tags": ["Funding-rate data"],
+                "summary": "Every funding-rate spread in the caller's book",
+                "description": "No request body: the account comes from the token.",
+                "responses": {
+                    "200": { "description": "Trade rows with their exchange legs joined in", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "additionalProperties": true } } } } },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/fRate/openedPositions": {
+            "post": {
+                "tags": ["Funding-rate data"],
+                "summary": "Funding-rate spreads that are still open",
+                "description": "No request body. Includes the per-leg funding fees, which is what the funding-rate table is built from.",
+                "responses": {
+                    "200": { "description": "Open positions", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "additionalProperties": true } } } } },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/fRate/fundingRateTableData": {
+            "post": {
+                "tags": ["Funding-rate data"],
+                "summary": "Rows for the funding-rate table view",
+                "description": "No request body: the table is assembled from the caller's own open positions and funding rows.",
+                "responses": {
+                    "200": { "description": "Table rows", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/fRate/typedTx": {
+            "post": {
+                "tags": ["Funding-rate data"],
+                "summary": "Per-exchange transaction rows",
+                "description": "No request body. Walks every configured exchange and tags each row with its `exchange`.",
+                "responses": {
+                    "200": { "description": "Flat array of transaction rows", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "additionalProperties": true } } } } },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/fRate/profits-details/pairing/batch": {
+            "post": {
+                "tags": ["Funding-rate data"],
+                "summary": "Funding-rate profit rows behind the per-pair totals",
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AggregateQuery" } } }
+                },
+                "responses": {
+                    "200": { "description": "Paginated rows; `countOnly` returns the size of the result set only", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        },
+        "/data/fRate/profits-details/pairing/aggregated/batch": {
+            "post": {
+                "tags": ["Funding-rate data"],
+                "summary": "Funding-rate profit rows, bucketed by interval",
+                "requestBody": {
+                    "required": true,
+                    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AggregateQuery" } } }
+                },
+                "responses": {
+                    "200": { "description": "Aggregated rows for the requested interval", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+                    "400": { "$ref": "#/components/responses/BadRequest" },
+                    "401": { "$ref": "#/components/responses/Unauthorized" },
+                    "429": { "$ref": "#/components/responses/TooManyRequests" }
+                }
+            }
+        }
+    },
+    "x-internal-paths": [
+        {
+            "paths": ["/", "/data/export", "/data/spotFuture/export", "/data/fRate/export"],
+            "description": "The SPA entry point, plus the raw-database downloads. The exports sit behind `requireAdmin` — the same guard as `/admin/restore` — and the SPA is the only unauthenticated HTML the server serves."
+        },
+        {
+            "paths": [
+                "/data/update",
+                "/data/accounts/update",
+                "/data/balance/update",
+                "/data/tx/update",
+                "/data/txs/update",
+                "/data/typedTxs/update",
+                "/data/spotFuture/update",
+                "/data/spotFuture/accounts/update",
+                "/data/spotFuture/tx/update",
+                "/data/spotFuture/txs/update",
+                "/data/spotFuture/txs/updateFR",
+                "/data/spotFuture/closedPositions/update",
+                "/data/spotFuture/openedPositions/update",
+                "/data/spotFuture/typedTxs/update",
+                "/data/fRate/update",
+                "/data/fRate/accounts/update",
+                "/data/fRate/tx/update",
+                "/data/fRate/txs/update",
+                "/data/fRate/txs/updateFR",
+                "/data/fRate/closedPositions/update",
+                "/data/fRate/openedPositions/update",
+                "/data/fRate/typedTxs/update",
+                "/data/fRate/fundingRateTableData/update"
+            ],
+            "description": "Ingestion writes, called by a worker that is not part of this repository: same bearer-token auth as everything else, and the rows land in the caller's own scope. They are listed here rather than modelled because their payloads are internal to the ingester — and `backend/src/__tests__/openapi.test.ts` fails if one of them disappears without this list being updated."
+        }
+    ]
+}

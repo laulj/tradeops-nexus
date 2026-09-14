@@ -115,6 +115,67 @@ A staged restore is deliberately two-step. The upload is streamed to `<db>.pendi
 
 For bulk work without the UI, Render's SSH + `scp` (or `magic-wormhole`) moves files in and out of `/data`. Never copy a live database: `VACUUM INTO '/data/backups/x.db'` produces a consistent single file with no `-wal`/`-shm` sidecars to keep in step.
 
+## API
+
+The HTTP surface is described in [`docs/openapi.json`](docs/openapi.json) — an OpenAPI 3.1
+document covering authentication, the account endpoints, the admin endpoints and every
+`/data` read the dashboard makes. GitHub renders it, as do
+[Swagger Editor](https://editor.swagger.io) and Redoc (`npx @redocly/cli preview-docs docs/openapi.json`).
+
+It is hand-written, and kept honest by `backend/src/__tests__/openapi.test.ts`: the test
+re-derives the route table from the source that registers it and fails when the two
+disagree in either direction — a documented route that no longer exists, a new route that
+isn't documented, or an entry excused under `x-internal-paths` whose route is gone. Adding
+an endpoint therefore means editing the document, and the failure message says so.
+
+Three things the document makes explicit:
+
+- **Everything under `/data` needs a bearer token** and returns only the caller's rows.
+- **`POST /playground/session` is the only way to get a populated account without
+  credentials** — it returns a temporary one that deletes itself.
+- **The ingestion writes (`POST /data/**/update`) are not modelled.** They are listed under
+  `x-internal-paths` because their payloads belong to the worker that is not in this
+  repository.
+
+### Talking to it with curl
+
+Passwords never travel as plain text: the browser keccak-hashes them and sends the 32 bytes
+as an object keyed by byte index — that is the `KeccakPassword` schema. By hand that is
+tedious, so hash once (from `backend/`, so the dependency resolves), then reuse it:
+
+```bash
+HASH=$(node -e 'const { keccak256 } = require("ethereum-cryptography/keccak"); const { utf8ToBytes } = require("ethereum-cryptography/utils"); process.stdout.write(JSON.stringify({ ...Array.from(keccak256(utf8ToBytes(process.argv[1]))) }))' demo123)
+
+# The bootstrap admin, or any account you registered (the demo password is public).
+TOKEN=$(curl -s http://localhost:8080/login -H 'content-type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":$HASH}" | sed -E 's/.*"accessToken":"([^"]+)".*/\1/')
+
+curl -s http://localhost:8080/data/symbols -H "authorization: Bearer $TOKEN"
+
+# Queries are POSTed bodies: pairs, paging and an optional window.
+curl -s http://localhost:8080/data/profits-details/pairing/batch \
+    -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+    -d '{"pairings":[{"baseSymbol":"ETH","quoteSymbol":"USDC"}],"page":1,"limit":5}'
+```
+
+No account at all is a one-liner — this is what the landing page's *Try the demo* button does:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/playground/session | sed -E 's/.*"accessToken":"([^"]+)".*/\1/')
+```
+
+Admin-only routes answer `403` to everyone else (see `POST /admin/restore/{target}` for the
+two-step restore, and `GET /usage` for the bandwidth budget behind the admin banner):
+
+```bash
+curl -s http://localhost:8080/usage -H "authorization: Bearer $TOKEN"
+curl -s -X POST http://localhost:8080/admin/restore/tx -H "authorization: Bearer $TOKEN" \
+    -H 'content-type: application/octet-stream' --data-binary @db/tx.db
+```
+
+The SPA talks to these same routes through `frontend/src/api/backend.ts`; those clients are
+the typed reference for response shapes, which the document deliberately leaves loose.
+
 ## Configuration
 
 Copy `frontend/.env.example` to `frontend/.env.local` to override the frontend values.
@@ -177,6 +238,7 @@ Database paths resolve relative to the backend's working directory (`backend/`),
 |   |-- src/api/                 typed backend clients
 |   `-- dist/                    built SPA (git-ignored) — served by the API
 `-- .github/workflows/ci.yml     lint · typecheck · build · test
+`-- docs/openapi.json            HTTP surface, kept in step with the routes by a test
 ```
 
 ## Scripts
@@ -199,6 +261,12 @@ Database paths resolve relative to the backend's working directory (`backend/`),
 ```bash
 pnpm --dir frontend test && pnpm --dir backend test
 ```
+
+The backend suite includes `src/__tests__/openapi.test.ts`, which re-derives the Express
+route table from the source that registers it. It fails if `docs/openapi.json` describes a
+route that no longer exists, if a new route is neither documented nor excused, or if
+anything but `/login`, `/register` and `/playground/session` becomes reachable without a
+token.
 
 ## Deployment
 
