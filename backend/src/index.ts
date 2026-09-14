@@ -360,6 +360,12 @@ export async function authenticate(name: string, pass: object) {
 }
 
 export const getSecret = async () => {
+    // An explicit secret is what keeps sessions valid across restarts: the file
+    // fallback below lives outside the persistent disk, so a deploy regenerates it
+    // and signs everyone out.
+    const configured = process.env.JWT_SECRET?.trim()
+    if (configured) return configured
+
     if (cachedSecret) return cachedSecret
     try {
         cachedSecret = (await readFile("./secret.key")).toString().trim()

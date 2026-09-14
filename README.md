@@ -68,6 +68,8 @@ pnpm --dir frontend build && pnpm --dir backend build && pnpm --dir backend star
 
 The quickest look around is the shared sample account: **`userDemo` / `demo123`**. Nothing about it is committed — its history is generated the first time it signs in — and it can only ever see the rows generated for it.
 
+Prefer no account at all? Tick **Explore with sample data in a temporary session** on the register form: the server generates an account, seeds the same kind of history, and deletes it when the session expires (or when you sign out). **Keep this account** converts it into a permanent one by giving it a password.
+
 To work from your own account instead:
 
 1. Choose **Create an account**.
@@ -98,6 +100,21 @@ pnpm --dir backend migrate:latest              # dry run
 pnpm --dir backend migrate:latest -- --apply   # writes, with safety copies
 ```
 
+## Data flow & deploys
+
+Code lives in git; state lives on the disk. They never mix:
+
+| Concern | Where it lives |
+| --- | --- |
+| Schema | this repository, applied automatically when a database is opened |
+| Data | `TX_DB_PATH` / `SPOT_FUTURE_DB_PATH` / `FUNDING_RATE_DB_PATH` — on Render, a persistent disk mounted at `/data` |
+| Snapshots | the admin **Export** button (all three files), plus `backups/` beside the databases after a restore |
+| Restore | the admin **Restore database** panel in Settings: verify, stage, restart |
+
+A staged restore is deliberately two-step. The upload is streamed to `<db>.pending`, checked with SQLite's own `PRAGMA integrity_check`, and swapped in when the service next starts — replacing a file the process holds open is how SQLite databases get corrupted, and the disk already restarts the service on every deploy. The file being replaced is snapshotted into `backups/` first, so a restore is undone by restoring that snapshot.
+
+For bulk work without the UI, Render's SSH + `scp` (or `magic-wormhole`) moves files in and out of `/data`. Never copy a live database: `VACUUM INTO '/data/backups/x.db'` produces a consistent single file with no `-wal`/`-shm` sidecars to keep in step.
+
 ## Configuration
 
 Copy `frontend/.env.example` to `frontend/.env.local` to override the frontend values.
@@ -110,6 +127,27 @@ Copy `frontend/.env.example` to `frontend/.env.local` to override the frontend v
 | `FUNDING_RATE_DB_PATH` | backend | `./db/fRate.db` | Funding-rate database |
 | `DEMO_WINDOW_DAYS` | backend | `1095` | Length of the history seeded for a demo account (3 years) |
 | `ADMIN_PASSWORD` | backend | `demo123` (development only) | Password for the bootstrap `admin` account. **Required when `NODE_ENV=production`**, because that account can list/delete users and download the raw databases |
+| `JWT_SECRET` | backend | generated (`backend/secret.key`) | Signing key for session tokens. Set it in production: the generated file sits outside the persistent disk, so every deploy would invalidate all sessions |
+| `DEMO_PASSWORD` | backend | `demo123` | Password for the shared `userDemo` sample account — intentionally public |
+| `PLAYGROUND_ENABLED` | backend | _on_ | Set to `0` to switch the playground off |
+| `PLAYGROUND_TTL_MS` | backend | `600000` | Lifetime of a playground session (10 minutes; extended while in use) |
+| `PLAYGROUND_WINDOW_DAYS` | backend | `365` | History generated for a playground session |
+| `MAX_PLAYGROUND_ACCOUNTS` | backend | `20` | Concurrent playground sessions before it reports itself full |
+| `MAX_ACCOUNTS` | backend | `200` | Registered accounts, playground sessions included |
+| `MAX_SESSIONS_PER_USER` | backend | `5` | Session tokens kept per account (newest first) |
+| `MAX_DB_MB` / `MAX_DB_MB_AUX` | backend | `256` / `128` | Size ceiling per database file; past it SQLite refuses writes and the API answers 503 |
+| `BODY_LIMIT` / `DATA_BODY_LIMIT` | backend | `256kb` / `50mb` | Request-body limits; the large one applies to `/data` only |
+| `MAX_RESTORE_MB` / `RESTORE_RATE_MAX` | backend | `320` / `2` | Restore upload ceiling and hourly allowance |
+| `RATE_LIMIT_MAX` / `RATE_LIMIT_AUTH_MAX` / `RATE_LIMIT_PLAYGROUND_MAX` | backend | `300` / `30` / `10` | Requests per minute per client (API, auth, playground) |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_DISABLED` | backend | `60000` / _off_ | Window length; `1` disables limiting (the test suite uses this) |
+| `EGRESS_INCLUDED_GB` / `EGRESS_WARN_GB` / `EGRESS_DEGRADE_GB` / `EGRESS_HARD_CEILING_GB` | backend | `5` / `3.5` / `5` / `10` | Outbound-bandwidth tiers: warn, degrade, floor |
+| `EGRESS_BURST_GB_PER_HOUR` | backend | `2` | Bytes in a rolling hour that jump straight to degrade |
+| `EGRESS_OVERHEAD_FACTOR` | backend | `1.1` | Calibrates our payload count against the host's billing |
+| `EGRESS_ENABLED` / `EGRESS_FLUSH_MS` | backend | _on_ / `30000` | Meter kill switch and how often the total is persisted |
+| `ALERT_WEBHOOK_URL` | backend | _unset_ | Slack/Discord/ntfy webhook for budget alerts |
+| `ALERT_EMAIL_API_KEY` / `ALERT_EMAIL_FROM` / `ALERT_EMAIL_TO` | backend | _unset_ | Email alerts (Resend by default; no mailer dependency) |
+| `ALERT_EMAIL_PROVIDER` | backend | `resend` | Or `postmark` |
+| `ALERT_EMAIL_TEST_ON_BOOT` / `ALERT_MAX_PER_RUN` | backend | `once` / `20` | Channel smoke test, and the cap that stops a bug mailing in a loop |
 | `VITE_BACKEND_TARGET` | frontend (dev/preview) | `http://localhost:8080` | Proxy target for API calls |
 | `VITE_API_BASE_URL` | frontend (build) | same origin | API origin — only needed when the SPA is hosted separately (see Deployment) |
 | `VITE_ENABLE_QUERY_DEVTOOLS` | frontend (dev) | _off_ | Mount React Query Devtools locally |
@@ -156,7 +194,7 @@ Database paths resolve relative to the backend's working directory (`backend/`),
 
 ## Testing and CI
 
-`.github/workflows/ci.yml` runs on every push to `main` and on pull requests, in two parallel jobs: **frontend** (lint -> typecheck + build -> test) and **backend** (build -> test). Both use Node 22 and pnpm 11.24.0 with frozen lockfiles. Run everything locally with:
+`.github/workflows/ci.yml` runs on every push to `main` and on pull requests, in three parallel jobs: **frontend** (lint -> typecheck + build -> bundle budget -> test), **backend** (build -> test) and **repo guard** (fails if a database, a key or an env file ever becomes tracked, or if a committed file looks like a credential). All use Node 22 and pnpm 11.24.0 with frozen lockfiles. Run everything locally with:
 
 ```bash
 pnpm --dir frontend test && pnpm --dir backend test
@@ -181,6 +219,17 @@ rather than the API's 401 JSON.
 Add a persistent disk for `backend/db/` — or set `TX_DB_PATH`, `SPOT_FUTURE_DB_PATH` and
 `FUNDING_RATE_DB_PATH` to a persistent volume — otherwise the databases are recreated empty
 on every deploy.
+
+**Checklist for that shape:**
+
+- **One instance, no autoscaling** — a disk-backed service cannot scale out, and the session list, the rate-limit counters and the bandwidth meter are all per-process.
+- **Single-service previews only**: full-stack preview environments create a service per pull request.
+- **A persistent disk mounted at `/data`**, with the three `*_DB_PATH` variables pointing into it (`/data/tx.db`, …), plus a billing alert in the workspace.
+- **`ADMIN_PASSWORD` set** — production refuses to start without it. Set `JWT_SECRET` too if sessions should survive a restart; otherwise a fresh secret is generated per boot and everyone is signed out.
+- **One alert channel** (`ALERT_WEBHOOK_URL` or the `ALERT_EMAIL_*` trio): the first request after startup sends a smoke test, so a bad key surfaces immediately.
+- Render's own **disk-usage notification** (free, at 80%) is a useful second signal for the storage ceiling.
+
+**Costs:** the instance is a flat fee, but outbound bandwidth is metered — 5 GB included on Hobby, then billed per GB, with no hard cap. That is what the tiers, the burst guard and the meter in `backend/src/egress.ts` exist to bound, and why the SPA is served compressed, immutably cached and without source maps.
 
 To host the SPA separately (for example a Render static site), build `frontend/` with
 `VITE_API_BASE_URL` set to the API's public origin; CORS is already enabled server-side.

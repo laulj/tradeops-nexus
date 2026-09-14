@@ -70,6 +70,34 @@ jobs:
             - name: Test
               run: pnpm test
 
+    # ── Repository guards ────────────────────────────────────────────────────
+    # The schema is public; the data is not. These checks fail the build if a
+    # database, a WAL sidecar, a key or an env file ever becomes tracked.
+    repo-guard:
+        name: repo guard (no data or secrets committed)
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: No databases, keys or env files are tracked
+              run: |
+                  offenders=$(git ls-files | grep -E '(^|/)(.*\.db(-wal|-shm)?|.*\.sqlite3?|secret\.key|\.env|\.env\..*)$' | grep -v '\.env\.example$' || true)
+                  if [ -n "$offenders" ]; then
+                      echo "::error::Data or secret artifacts are tracked in git:"
+                      echo "$offenders"
+                      exit 1
+                  fi
+                  echo "ok: no databases, keys or env files are tracked"
+
+            - name: No credential-shaped strings
+              run: |
+                  if git grep -nIE '\bre_[A-Za-z0-9]{16,}|\bghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|xox[baprs]-' -- . ; then
+                      echo "::error::A committed file looks like it contains a credential."
+                      exit 1
+                  fi
+                  echo "ok: no credential-shaped strings found"
+
     # ── Deploy (CD) ──────────────────────────────────────────────────────────
     # Wire this up once the hosting target is decided (e.g. Render, Netlify,
     # Vercel, or GitHub Pages). Example for GitHub Pages + Vite:
