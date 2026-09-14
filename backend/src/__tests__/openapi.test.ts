@@ -153,7 +153,7 @@ describe("docs/openapi.json", () => {
             .sort()
         // Everything here is reachable without a token, so growing the list should
         // be a deliberate edit rather than a side effect.
-        expect(publicOperations).toEqual(["GET /login", "POST /login", "POST /playground/session", "POST /register"])
+        expect(publicOperations).toEqual(["GET /login", "GET /openapi.json", "POST /login", "POST /playground/session", "POST /register"])
     })
 
     it("describes every operation consistently", () => {

@@ -552,6 +552,22 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     next()
 })
 
+// ── The specification ───────────────────────────────────────────────────────
+// Served straight from the repository copy — the same file
+// `src/__tests__/openapi.test.ts` validates against the route table, so what an
+// integrator downloads cannot drift from what the code does. Public on purpose:
+// the document is already in a public repository, and it is only useful before
+// anyone has an account. ETag + a short max-age turn repeat fetches into 304s
+// that cost nothing to send, and the bandwidth gate replaces it with the light
+// page for anonymous visitors once the tier degrades, like any other public
+// asset.
+const OPENAPI_SPEC = path.join(__dirname, "../../docs/openapi.json")
+
+app.get("/openapi.json", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "public, max-age=300")
+    res.sendFile(OPENAPI_SPEC)
+})
+
 app.get("/", (req: Request, res: Response) => {
     res.sendFile(SPA_INDEX)
 

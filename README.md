@@ -119,7 +119,9 @@ For bulk work without the UI, Render's SSH + `scp` (or `magic-wormhole`) moves f
 
 The HTTP surface is described in [`docs/openapi.json`](docs/openapi.json) — an OpenAPI 3.1
 document covering authentication, the account endpoints, the admin endpoints and every
-`/data` read the dashboard makes. GitHub renders it, as do
+`/data` read the dashboard makes. The API serves that same file at `GET /openapi.json`
+(ETag'd, five-minute cache), so tooling can fetch it without cloning the repository. GitHub
+renders the file in place, as do
 [Swagger Editor](https://editor.swagger.io) and Redoc (`npx @redocly/cli preview-docs docs/openapi.json`).
 
 It is hand-written, and kept honest by `backend/src/__tests__/openapi.test.ts`: the test

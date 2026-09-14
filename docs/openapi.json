@@ -3,7 +3,7 @@
     "info": {
         "title": "TradeOps Nexus API",
         "version": "1.0.0",
-        "description": "Express + SQLite API behind the TradeOps Nexus dashboard.\n\nKept honest by `backend/src/__tests__/openapi.test.ts`, which fails when a documented path stops existing or when a new public route appears without documentation. The ingestion writes (`/data/**/update`) are listed under `x-internal-paths`: they belong to a worker that is not part of this repository.\n\nEvery data endpoint requires a bearer token and only ever returns the caller's own rows."
+        "description": "Express + SQLite API behind the TradeOps Nexus dashboard. Served as-is at `GET /openapi.json`.\n\nKept honest by `backend/src/__tests__/openapi.test.ts`, which fails when a documented path stops existing or when a new public route appears without documentation. The ingestion writes (`/data/**/update`) are listed under `x-internal-paths`: they belong to a worker that is not part of this repository.\n\nEvery data endpoint requires a bearer token and only ever returns the caller's own rows."
     },
     "servers": [
         { "url": "http://localhost:8080", "description": "Local development (the SPA proxies here by default)" },
@@ -16,7 +16,8 @@
         { "name": "Admin", "description": "Owner-only: user management, bandwidth usage, database restore" },
         { "name": "Spot data", "description": "Spot trades, balances and aggregated profit" },
         { "name": "Perp-futures data", "description": "Spot/perp basis trades, open positions and aggregated profit" },
-        { "name": "Funding-rate data", "description": "Funding-rate spreads, open positions and aggregated profit" }
+        { "name": "Funding-rate data", "description": "Funding-rate spreads, open positions and aggregated profit" },
+        { "name": "Docs", "description": "The specification itself, served for integrators and their tooling" }
     ],
     "security": [{ "bearerAuth": [] }],
     "components": {
@@ -151,6 +152,22 @@
         }
     },
     "paths": {
+        "/openapi.json": {
+            "get": {
+                "tags": ["Docs"],
+                "summary": "This document, as served by the API",
+                "description": "Byte-for-byte the file in the repository, so the specification cannot drift from the routes it describes. Repeats are cheap: send the `ETag` back as `If-None-Match` and the answer is `304` with no body.",
+                "security": [],
+                "responses": {
+                    "200": {
+                        "description": "The OpenAPI document",
+                        "content": { "application/json": { "schema": { "type": "object" } } }
+                    },
+                    "304": { "description": "Unchanged since the `ETag` you hold" },
+                    "503": { "$ref": "#/components/responses/Unavailable" }
+                }
+            }
+        },
         "/login": {
             "post": {
                 "tags": ["Auth"],
