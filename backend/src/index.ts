@@ -5,8 +5,9 @@ import express, { Express, Request, Response, NextFunction } from "express"
 import { bytesToHex, equalsBytes } from "ethereum-cryptography/utils"
 import { authenticateMiddleware, initMiddleware } from "./middleware"
 import { requireAdmin } from "./guards"
-import { ADMIN_USERNAME, DEMO_USERNAME, isReservedUsername } from "./credentials"
-import { getUser, createUser, listUsers, setUserExpiry, promoteUser } from "./database"
+import { ADMIN_USERNAME, DEMO_USERNAME, isProduction, isReservedUsername } from "./credentials"
+import { database, getUser, createUser, listUsers, setUserExpiry, promoteUser } from "./database"
+import { addEgressBytes, getAlertState, readEgressBytes, setAlertState } from "./database"
 import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS, ensureDemoPopulated } from "./demoData"
 import {
     createPlaygroundSession,
@@ -19,6 +20,25 @@ import {
     playgroundTtlMs,
 } from "./playground"
 import { apiRateLimiter, authRateLimiter, playgroundRateLimiter } from "./rateLimit"
+import {
+    consumeEgressRollover,
+    currentEgressTier,
+    drainPendingEgress,
+    egressBytesRestored,
+    egressDegraded,
+    egressFloorReached,
+    egressFlushMs,
+    egressPeriod,
+    egressSnapshot,
+    egressTierRank,
+    includedAllowanceBytes,
+    isAnonymousRequest,
+    recordEgress,
+    restoreEgressBytes,
+    wantsHtmlOrAsset,
+} from "./egress"
+import { alertBootTestMode, alertChannelConfigured, sendAlert, sendAlertChannelTest } from "./alerts"
+import type { EgressTier } from "./egress"
 import { invalidateUserCache } from "./utils"
 import { dataRouter } from "./databaseRouter"
 import { Secret, sign, SignOptions, verify } from "jsonwebtoken"
@@ -172,13 +192,103 @@ const SPA_INDEX = path.join(SPA_DIR, "index.html")
 // the app instead of hitting an API handler (GET /login answers XHR with 401 JSON).
 const isHtmlNavigation = (req: Request) => String(req.headers.accept ?? "").includes("text/html")
 
+// A marker cookie (never the token) lets the bandwidth gate distinguish a
+// signed-in visitor's page load — which carries no Authorization header — from an
+// anonymous one, so degraded mode does not punish the owner's own refresh.
+const SESSION_MARKER = "tradeops_session"
+
+const setSessionMarker = (res: Response) => {
+    res.cookie(SESSION_MARKER, "1", {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: isProduction(),
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+    })
+}
+
 app.use(cors())
+// ── Outbound bandwidth accounting ───────────────────────────────────────────
+// Bytes are attributed per response from the socket's write-counter delta, which
+// stays correct on keep-alive connections and for gzip/chunked responses where
+// Content-Length is absent. Registered this early so no response escapes the
+// meter. The tier is exposed on every response so `curl -I` shows the state.
+app.use((req: Request, res: Response, next: NextFunction) => {
+    const startBytes = res.socket?.bytesWritten ?? 0
+
+    // `res.write`/`res.end` are wrapped as well, because the socket can already be
+    // gone by the time `finish` fires (short-lived connections), which would leave
+    // the delta at zero. compression() wraps these methods *after* us, so the
+    // wrapper still sees the compressed bytes that actually go on the wire.
+    let written = 0
+    const originalWrite = res.write.bind(res)
+    const originalEnd = res.end.bind(res)
+
+    res.write = ((chunk: unknown, ...rest: unknown[]) => {
+        if (chunk) written += Buffer.byteLength(chunk as Buffer)
+        return originalWrite(chunk as never, ...(rest as never[]))
+    }) as typeof res.write
+
+    res.end = ((chunk?: unknown, ...rest: unknown[]) => {
+        if (chunk) written += Buffer.byteLength(chunk as Buffer)
+        return originalEnd(chunk as never, ...(rest as never[]))
+    }) as typeof res.end
+
+    res.setHeader("X-Egress-Tier", currentEgressTier())
+    res.on("finish", () => {
+        const socketDelta = (res.socket?.bytesWritten ?? startBytes) - startBytes
+        const sent = socketDelta > 0 ? socketDelta : written
+        if (Number.isFinite(sent) && sent > 0) recordEgress(sent)
+    })
+    next()
+})
 // Compress before anything else: `compression()` wraps res.write/res.end for the
 // handlers registered *after* it, so mounting it below express.static() left
 // every asset (including the ~1.5 MB app chunk) uncompressed on the wire.
 app.use(compression())
 app.use(express.json({ limit: "50mb" }))
 app.use(express.urlencoded({ limit: "50mb", extended: true })) // For parsing application/x-www-form-urlencoded
+
+// ── Bandwidth tier gate ─────────────────────────────────────────────────────
+// Once the budget is spent the public surface shrinks to a ~2 KB page while
+// signed-in visitors keep the application — a breaker must never lock the owner
+// out of their own deployment. Registered before initMiddleware so a blocked
+// request costs no database work either.
+const LIGHT_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TradeOps Nexus — bandwidth budget reached</title></head>
+<body style="font-family:system-ui,sans-serif;margin:3rem auto;max-width:34rem;line-height:1.6;padding:0 1.5rem">
+<h1 style="font-size:1.25rem">TradeOps Nexus is in bandwidth-saving mode</h1>
+<p>This deployment has reached the monthly outbound-bandwidth budget, so visitors without a session are being served this page instead of the application (~2 KB instead of ~1 MB).</p>
+<p><a href="/login">Sign in</a> to keep using it, or come back next month.</p>
+</body></html>`
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+    if (!egressDegraded()) return next()
+
+    // Aggregates accept a `limit`: 50 rows instead of 500 is roughly a tenth of
+    // the bytes for the same query.
+    const clamp = (value: unknown) => (Number(value) > 50 ? 50 : value)
+    if (typeof req.query?.limit !== "undefined") req.query.limit = String(clamp(req.query.limit))
+    if (req.body && typeof req.body === "object" && "limit" in req.body) {
+        ;(req.body as Record<string, unknown>).limit = clamp((req.body as Record<string, unknown>).limit)
+    }
+
+    // Every playground session seeds thousands of rows, so it stops first.
+    if (req.path.startsWith("/playground/")) {
+        return res
+            .status(503)
+            .json({ error: "The playground is paused while this deployment is over its bandwidth budget" })
+    }
+
+    if (!isAnonymousRequest(req.headers)) return next()
+    if (req.method === "POST") return next() // sign-in and registration keep working
+    if (egressFloorReached() || wantsHtmlOrAsset(req.path, req.headers)) {
+        res.setHeader("Cache-Control", "no-store")
+        return res.status(503).type("html").send(LIGHT_PAGE)
+    }
+    return next()
+})
+
 app.use(initMiddleware)
 // Hashed chunks cache immutably; named files (index.html, favicon, og-image)
 // revalidate so a deploy is picked up on the next request.
@@ -286,6 +396,93 @@ const maybeSweepPlaygroundSessions = () => {
         })
 }
 
+// ── Cost-control maintenance ────────────────────────────────────────────────
+// Backs the byte counter with SQLite (so a deploy cannot reset the month), fires
+// the tier alerts and sends the alert-channel smoke test on the first request
+// after startup. Throttled and single-flight, because it runs inside the request
+// path and must never be able to slow a response down.
+const EGRESS_BOOT_TEST_KEY = "alert-boot-test-sent"
+
+const gigabytes = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(2)} GB`
+
+const describeEgress = (now = Date.now()): string => {
+    const snapshot = egressSnapshot(now)
+    return [
+        `period ${snapshot.period}`,
+        `${gigabytes(snapshot.bytes)} recorded against ${gigabytes(snapshot.includedBytes)} included`,
+        `last hour: ${gigabytes(snapshot.hourlyBytes)}`,
+        `tier ${snapshot.tier} — warn ${gigabytes(snapshot.warnBytes)}, degrade ${gigabytes(snapshot.degradeBytes)}, floor ${gigabytes(snapshot.ceilingBytes)}`,
+    ].join("\n")
+}
+
+let lastAlertedEgressTier: EgressTier = "normal"
+let egressMaintenanceRun: Promise<void> | null = null
+let lastEgressFlushAt = 0
+let alertBootTestChecked = false
+
+/**
+ * Joins an in-flight run rather than skipping it, so a caller can rely on a run
+ * having completed by the time this resolves — the request path fires this
+ * without awaiting, and a test (or a future admin action) may need the guarantee.
+ */
+export const maintainCostControls = async (): Promise<void> => {
+    if (!database.db) return
+    if (egressMaintenanceRun) return egressMaintenanceRun
+    egressMaintenanceRun = runCostControlMaintenance().finally(() => {
+        egressMaintenanceRun = null
+    })
+    return egressMaintenanceRun
+}
+
+const runCostControlMaintenance = async (): Promise<void> => {
+    try {
+        const now = Date.now()
+        const period = egressPeriod(now)
+
+        // Restore once per process: the month's total has to survive deploys.
+        if (!egressBytesRestored()) restoreEgressBytes(await readEgressBytes(period), now)
+
+        if (now - lastEgressFlushAt >= egressFlushMs()) {
+            lastEgressFlushAt = now
+            const pending = drainPendingEgress()
+            if (pending > 0) await addEgressBytes(period, pending)
+        }
+
+        const snapshot = egressSnapshot(now)
+        if (snapshot.tier !== lastAlertedEgressTier) {
+            const escalated = egressTierRank(snapshot.tier) > egressTierRank(lastAlertedEgressTier)
+            lastAlertedEgressTier = snapshot.tier
+            if (escalated && alertChannelConfigured()) {
+                void sendAlert({
+                    subject: `[tradeops-nexus] bandwidth tier: ${snapshot.tier}`,
+                    body: describeEgress(now),
+                })
+            }
+        }
+
+        const rolled = consumeEgressRollover()
+        if (rolled && alertChannelConfigured()) {
+            void sendAlert({
+                subject: `[tradeops-nexus] bandwidth ${rolled.period} closed at ${gigabytes(rolled.bytes)}`,
+                body: `Period ${rolled.period} ended with ${gigabytes(rolled.bytes)} of outbound traffic recorded (included allowance ${gigabytes(includedAllowanceBytes())}).\n\nCompare this with the host's bandwidth graph to calibrate EGRESS_OVERHEAD_FACTOR.`,
+            })
+        }
+
+        // Prove the alert channel works on the first request after startup, while
+        // a bad key or an unverified sender is still cheap to notice.
+        if (!alertBootTestChecked && alertChannelConfigured() && alertBootTestMode() !== "off") {
+            alertBootTestChecked = true
+            const alreadySent = (await getAlertState(EGRESS_BOOT_TEST_KEY)) === "1"
+            if (alertBootTestMode() === "always" || !alreadySent) {
+                const result = await sendAlertChannelTest()
+                if (result.delivered > 0) await setAlertState(EGRESS_BOOT_TEST_KEY, "1")
+            }
+        }
+    } catch (err) {
+        console.error("Cost-control maintenance failed:", err)
+    }
+}
+
 // a middleware function with no mount path. This code is executed for every request to the router
 app.use((req: Request, res: Response, next: NextFunction) => {
     // Capture start time in nanoseconds
@@ -303,6 +500,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
     // Expired playground sessions are cleaned up from traffic rather than a timer.
     maybeSweepPlaygroundSessions()
+    // Same for the bandwidth counter: persisted, alerted and smoke-tested from
+    // traffic, because nothing else survives a deploy.
+    void maintainCostControls()
     next()
 })
 
@@ -350,6 +550,7 @@ app.all("/login", async (req: Request, res: Response, next: NextFunction) => {
             if (!user) return res.status(400).json({ error: "Failed to create a session" })
             const JWTToken = await generateAccessToken("1d", username)
             user.JWT.push(JWTToken)
+            setSessionMarker(res)
 
             return res.status(200).json({ accessToken: JWTToken, username })
         }
@@ -407,6 +608,7 @@ app.post("/register", async (req: Request, res: Response) => {
 
         const JWTToken = await generateAccessToken("1d", username)
         user.JWT.push(JWTToken)
+        setSessionMarker(res)
         return res.status(201).json({ accessToken: JWTToken, username, demoPopulated: Boolean(wantsDemoData) })
     } catch (err: any) {
         if (err && err.code === "SQLITE_CONSTRAINT") return res.status(409).json({ error: "Username already exists" })
@@ -417,6 +619,11 @@ app.post("/register", async (req: Request, res: Response) => {
 
 // ─── ADMIN: user management ─────────────────────────────────────────────────
 // `requireAdmin` lives in ./guards so the data routers can reuse it.
+
+// Current outbound-bandwidth state: the cost dashboard behind the admin banner.
+app.get("/usage", authenticateMiddleware, requireAdmin, (_req: Request, res: Response) => {
+    return res.status(200).json(egressSnapshot())
+})
 
 // List all registered users (username, created_at, demo_populated).
 app.get("/users", authenticateMiddleware, requireAdmin, async (_req: Request, res: Response) => {
@@ -460,6 +667,7 @@ app.get("/logout", authenticateMiddleware, async (req: Request, res: Response) =
 
     users[username].JWT = users[username].JWT.filter((_token) => _token !== token)
     // invalidatedJWTokens.push(token)
+    res.clearCookie(SESSION_MARKER)
     return res.status(201).send("Logged out")
 })
 
@@ -485,6 +693,7 @@ app.post("/playground/session", async (_req: Request, res: Response) => {
 
         const JWTToken = await generateAccessToken("1d", username)
         user.JWT.push(JWTToken)
+        setSessionMarker(res)
         return res.status(201).json({ accessToken: JWTToken, username, expiresAt, demoPopulated: true })
     } catch (err) {
         console.error("Failed to start a playground session:", err)

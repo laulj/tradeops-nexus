@@ -760,6 +760,8 @@ export const ensureUsersTable = async (db: Database) => {
     // generated on first sign-in (see ensureDemoPopulated) so a fresh deployment
     // does not pay for them until somebody asks.
     await ensureBootstrapAccount(db, DEMO_USERNAME, demoPassword(), "DEMO_PASSWORD")
+    // Bandwidth accounting and alert flags live in the same file (tx.db).
+    await ensureOperationalTables(db)
 }
 
 export const getUser = async (
@@ -838,6 +840,56 @@ export const promoteUser = async (username: string, passwordHash: Uint8Array) =>
         Buffer.from(passwordHash),
         username,
     ])
+}
+
+// ── Operational bookkeeping (tx.db) ─────────────────────────────────────────
+// Two tiny tables: the month's outbound-byte total (so a deploy cannot reset it)
+// and small key/value flags (the alert-channel smoke test). Both are written on a
+// throttle — one UPDATE per flush interval — so they cost nothing to keep.
+
+export const ensureOperationalTables = async (db: Database) => {
+    await db.exec(`CREATE TABLE IF NOT EXISTS egress_usage (
+        period TEXT PRIMARY KEY,
+        bytes INTEGER NOT NULL DEFAULT 0
+    );`)
+    await db.exec(`CREATE TABLE IF NOT EXISTS alert_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );`)
+}
+
+export const addEgressBytes = async (period: string, bytes: number) => {
+    if (!database.db || !Number.isFinite(bytes) || bytes <= 0) return
+    await database.db.run(
+        `INSERT INTO egress_usage (period, bytes) VALUES (?, ?)
+         ON CONFLICT(period) DO UPDATE SET bytes = bytes + excluded.bytes`,
+        [period, Math.round(bytes)],
+    )
+}
+
+export const readEgressBytes = async (period: string): Promise<number> => {
+    if (!database.db) return 0
+    const row = (await database.db.get(`SELECT bytes FROM egress_usage WHERE period = ?`, [period])) as
+        | { bytes: number }
+        | undefined
+    return Number(row?.bytes ?? 0)
+}
+
+export const getAlertState = async (key: string): Promise<string | undefined> => {
+    if (!database.db) return undefined
+    const row = (await database.db.get(`SELECT value FROM alert_state WHERE key = ?`, [key])) as
+        | { value: string }
+        | undefined
+    return row?.value
+}
+
+export const setAlertState = async (key: string, value: string) => {
+    if (!database.db) return
+    await database.db.run(
+        `INSERT INTO alert_state (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        [key, value],
+    )
 }
 
 // Idempotently add the per-user owner column to every data table. Existing rows

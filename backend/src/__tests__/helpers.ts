@@ -44,16 +44,77 @@ export const setDbEnv = (dir: string) => {
 }
 
 export const clearDbEnv = () => {
-    delete process.env.TX_DB_PATH
-    delete process.env.SPOT_FUTURE_DB_PATH
-    delete process.env.FUNDING_RATE_DB_PATH
-    delete process.env.DEMO_WINDOW_DAYS
-    delete process.env.ADMIN_PASSWORD
-    delete process.env.PLAYGROUND_TTL_MS
-    delete process.env.MAX_PLAYGROUND_ACCOUNTS
-    delete process.env.PLAYGROUND_ENABLED
-    delete process.env.PLAYGROUND_WINDOW_DAYS
-    delete process.env.PLAYGROUND_SWEEP_MS
+    for (const key of [
+        "TX_DB_PATH",
+        "SPOT_FUTURE_DB_PATH",
+        "FUNDING_RATE_DB_PATH",
+        "DEMO_WINDOW_DAYS",
+        "ADMIN_PASSWORD",
+        "DEMO_PASSWORD",
+        "PLAYGROUND_TTL_MS",
+        "MAX_PLAYGROUND_ACCOUNTS",
+        "PLAYGROUND_ENABLED",
+        "PLAYGROUND_WINDOW_DAYS",
+        "PLAYGROUND_SWEEP_MS",
+        "EGRESS_ENABLED",
+        "EGRESS_WARN_GB",
+        "EGRESS_DEGRADE_GB",
+        "EGRESS_HARD_CEILING_GB",
+        "EGRESS_BURST_GB_PER_HOUR",
+        "EGRESS_OVERHEAD_FACTOR",
+        "EGRESS_FLUSH_MS",
+        "ALERT_WEBHOOK_URL",
+        "ALERT_EMAIL_API_KEY",
+        "ALERT_EMAIL_FROM",
+        "ALERT_EMAIL_TO",
+        "ALERT_EMAIL_PROVIDER",
+        "ALERT_EMAIL_TEST_ON_BOOT",
+        "ALERT_MAX_PER_RUN",
+    ]) {
+        delete process.env[key]
+    }
+}
+
+/** Bandwidth-budget knobs; every one is read per call. */
+export const setEgressEnv = (
+    opts: {
+        warnGb?: number
+        degradeGb?: number
+        ceilingGb?: number
+        burstGbPerHour?: number
+        overheadFactor?: number
+        flushMs?: number
+        enabled?: boolean
+    } = {},
+) => {
+    if (opts.warnGb !== undefined) process.env.EGRESS_WARN_GB = String(opts.warnGb)
+    if (opts.degradeGb !== undefined) process.env.EGRESS_DEGRADE_GB = String(opts.degradeGb)
+    if (opts.ceilingGb !== undefined) process.env.EGRESS_HARD_CEILING_GB = String(opts.ceilingGb)
+    if (opts.burstGbPerHour !== undefined) process.env.EGRESS_BURST_GB_PER_HOUR = String(opts.burstGbPerHour)
+    if (opts.overheadFactor !== undefined) process.env.EGRESS_OVERHEAD_FACTOR = String(opts.overheadFactor)
+    if (opts.flushMs !== undefined) process.env.EGRESS_FLUSH_MS = String(opts.flushMs)
+    if (opts.enabled !== undefined) process.env.EGRESS_ENABLED = opts.enabled ? "1" : "0"
+}
+
+/** Alert-channel configuration. Empty strings count as "not configured". */
+export const setAlertEnv = (
+    opts: {
+        webhookUrl?: string
+        apiKey?: string
+        from?: string
+        to?: string
+        provider?: string
+        bootTest?: string
+        maxPerRun?: number
+    } = {},
+) => {
+    if (opts.webhookUrl !== undefined) process.env.ALERT_WEBHOOK_URL = opts.webhookUrl
+    if (opts.apiKey !== undefined) process.env.ALERT_EMAIL_API_KEY = opts.apiKey
+    if (opts.from !== undefined) process.env.ALERT_EMAIL_FROM = opts.from
+    if (opts.to !== undefined) process.env.ALERT_EMAIL_TO = opts.to
+    if (opts.provider !== undefined) process.env.ALERT_EMAIL_PROVIDER = opts.provider
+    if (opts.bootTest !== undefined) process.env.ALERT_EMAIL_TEST_ON_BOOT = opts.bootTest
+    if (opts.maxPerRun !== undefined) process.env.ALERT_MAX_PER_RUN = String(opts.maxPerRun)
 }
 
 /** Playground knobs, which are read per call so a test can change them mid-run. */
