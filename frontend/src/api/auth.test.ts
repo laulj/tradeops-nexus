@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keccak256 } from "ethereum-cryptography/keccak"
 import { utf8ToBytes } from "ethereum-cryptography/utils"
-import { getUsernameFromToken, login, logout, register } from "@/api/auth"
+import { createPlaygroundSession, getUsernameFromToken, keepPlaygroundSession, login, logout, register } from "@/api/auth"
 
 const jsonResponse = (body: unknown, status = 200, ok = status >= 200 && status < 300): Response =>
     ({
@@ -20,7 +20,7 @@ describe("login", () => {
         const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ accessToken: "tok" }))
         vi.stubGlobal("fetch", fetchMock)
 
-        await expect(login("admin", "demo123")).resolves.toEqual({ ok: true, accessToken: "tok" })
+        await expect(login("admin", "demo123")).resolves.toEqual({ ok: true, accessToken: "tok", expiresAt: null })
 
         const [url, config] = fetchMock.mock.calls[0]
         expect(url).toBe("/login")
@@ -57,7 +57,12 @@ describe("register", () => {
         const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ accessToken: "tok", username: "alice" }, 201))
         vi.stubGlobal("fetch", fetchMock)
 
-        await expect(register("alice", "s3cret")).resolves.toEqual({ ok: true, accessToken: "tok", username: "alice" })
+        await expect(register("alice", "s3cret")).resolves.toEqual({
+            ok: true,
+            accessToken: "tok",
+            username: "alice",
+            expiresAt: null,
+        })
 
         const [url, config] = fetchMock.mock.calls[0]
         expect(url).toBe("/register")
@@ -154,3 +159,49 @@ describe("logout", () => {
         expect(fetchMock).not.toHaveBeenCalled()
     })
 })
+
+describe("playground sessions", () => {
+    it("starts a session with no credentials", async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValue(
+                jsonResponse({ accessToken: "guest-tok", username: "guest_abc", expiresAt: 1_800_000_000_000 }, 201),
+            )
+        vi.stubGlobal("fetch", fetchMock)
+
+        await expect(createPlaygroundSession()).resolves.toEqual({
+            ok: true,
+            accessToken: "guest-tok",
+            username: "guest_abc",
+            expiresAt: 1_800_000_000_000,
+        })
+
+        const [url, config] = fetchMock.mock.calls[0]
+        expect(String(url)).toContain("playground/session")
+        expect((config as RequestInit).method).toBe("POST")
+    })
+
+    it("treats a 2xx without a session as a failure", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({}, 201)))
+
+        await expect(createPlaygroundSession()).resolves.toMatchObject({ ok: false, status: 201 })
+    })
+
+    it("hashes the password when keeping a session", async () => {
+        localStorage.setItem("accessToken", "guest-tok")
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ username: "guest_abc", expiresAt: null }))
+        vi.stubGlobal("fetch", fetchMock)
+
+        await expect(keepPlaygroundSession("kept-secret")).resolves.toEqual({ ok: true })
+
+        const [url, config] = fetchMock.mock.calls[0]
+        expect(String(url)).toContain("playground/keep")
+        const request = config as RequestInit
+        const body = JSON.parse(String(request.body))
+        // The plaintext password must never leave the browser.
+        expect(body.password).not.toBe("kept-secret")
+        expect(Object.values(body.password)).toEqual(Array.from(keccak256(utf8ToBytes("kept-secret"))))
+        expect((request.headers as Record<string, string>).Authorization).toBe("Bearer guest-tok")
+    })
+})
+

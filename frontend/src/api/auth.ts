@@ -1,13 +1,19 @@
 import { keccak256 } from "ethereum-cryptography/keccak"
 import { utf8ToBytes } from "ethereum-cryptography/utils"
 import { baseUrl } from "@/api/backend"
+import { clearSessionExpiry } from "@/app/sessionExpiry"
 
 // Result of a POST /login | /register attempt. Success mirrors the backend JSON
 // (with `ok: true`), failures carry the HTTP status plus a human-readable
 // message parsed from the backend (error JSON/text) so the login form can give
 // specific guidance (no account vs wrong password vs duplicate username).
 export type AuthResponse =
-    | { ok: true; accessToken: string; username?: string; demoPopulated?: boolean }
+    | { ok: true; accessToken: string; username?: string; demoPopulated?: boolean; expiresAt?: number | null }
+    | { ok: false; status: number; message: string }
+
+/** A playground session: a generated account whose data disappears with it. */
+export type PlaygroundSessionResponse =
+    | { ok: true; accessToken: string; username: string; expiresAt: number }
     | { ok: false; status: number; message: string }
 
 const fallbackMessage = (endpoint: "login" | "register"): string =>
@@ -16,9 +22,8 @@ const fallbackMessage = (endpoint: "login" | "register"): string =>
         : "Couldn’t create your account. Please try again."
 
 // Tries to read a friendly `{ error }` JSON message (or raw text) from a failed
-// response, falling back to an endpoint-specific generic message.
-const readErrorMessage = async (response: Response, endpoint: "login" | "register"): Promise<string> => {
-    const fallback = fallbackMessage(endpoint)
+// response, falling back to the caller's default message.
+const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
     try {
         const contentType = response.headers.get("content-type") ?? ""
         if (contentType.includes("application/json")) {
@@ -58,7 +63,12 @@ const authenticate = async (
             }),
         })
         if (response.ok) {
-            const body = (await response.json()) as { accessToken?: unknown; username?: unknown; demoPopulated?: unknown }
+            const body = (await response.json()) as {
+                accessToken?: unknown
+                username?: unknown
+                demoPopulated?: unknown
+                expiresAt?: unknown
+            }
             if (typeof body?.accessToken !== "string" || !body.accessToken) {
                 // Treat a 2xx without a token as a failed attempt.
                 return { ok: false, status: response.status, message: fallbackMessage(endpoint) }
@@ -68,9 +78,12 @@ const authenticate = async (
                 accessToken: body.accessToken,
                 username: typeof body.username === "string" ? body.username : undefined,
                 demoPopulated: body.demoPopulated === true ? true : undefined,
+                // Absent for ordinary accounts, which is how the client learns the
+                // session is permanent.
+                expiresAt: typeof body.expiresAt === "number" && body.expiresAt > 0 ? body.expiresAt : null,
             }
         }
-        return { ok: false, status: response.status, message: await readErrorMessage(response, endpoint) }
+        return { ok: false, status: response.status, message: await readErrorMessage(response, fallbackMessage(endpoint)) }
     } catch (error) {
         console.log(queryUrl, error)
         return { ok: false, status: 0, message: "Can’t reach the server — is the backend running?" }
@@ -113,6 +126,8 @@ export const logout = async () => {
             if (response.status === 201) {
                 localStorage.removeItem("accessToken")
                 localStorage.removeItem("username")
+                // The deadline belongs to the session being ended.
+                clearSessionExpiry()
                 return true
             } else return false
         } catch (error) {
@@ -124,5 +139,69 @@ export const logout = async () => {
             window.location.href = "/login"
         }
         return true
+    }
+}
+
+// ── Playground sessions ─────────────────────────────────────────────────────
+const cannotReach = "Can’t reach the server — is the backend running?"
+
+/**
+ * Starts a temporary session: the server generates an account, seeds a sample
+ * portfolio and returns a token plus its deadline. There is no password — the
+ * session *is* the token — and the account deletes itself when the deadline
+ * passes.
+ */
+export const createPlaygroundSession = async (): Promise<PlaygroundSessionResponse> => {
+    const queryUrl = baseUrl + "playground/session"
+
+    try {
+        const response = await fetch(queryUrl, { method: "POST", headers: { Accept: "application/json" } })
+        if (!response.ok) {
+            return {
+                ok: false,
+                status: response.status,
+                message: await readErrorMessage(response, "The playground could not be started."),
+            }
+        }
+
+        const body = (await response.json()) as { accessToken?: unknown; username?: unknown; expiresAt?: unknown }
+        if (
+            typeof body?.accessToken === "string" &&
+            body.accessToken &&
+            typeof body.username === "string" &&
+            typeof body.expiresAt === "number"
+        ) {
+            return { ok: true, accessToken: body.accessToken, username: body.username, expiresAt: body.expiresAt }
+        }
+        return { ok: false, status: response.status, message: "The playground could not be started." }
+    } catch (error) {
+        console.log(queryUrl, error)
+        return { ok: false, status: 0, message: cannotReach }
+    }
+}
+
+/**
+ * Converts the current playground session into a permanent account. The password
+ * is hashed here, exactly as at sign-in, so the plaintext never leaves the browser.
+ */
+export const keepPlaygroundSession = async (password: string): Promise<{ ok: boolean; message?: string }> => {
+    const queryUrl = baseUrl + "playground/keep"
+    const token = localStorage.getItem("accessToken")
+
+    try {
+        const response = await fetch(queryUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ password: keccak256(utf8ToBytes(password)) }),
+        })
+        if (response.ok) return { ok: true }
+        return { ok: false, message: await readErrorMessage(response, "Could not keep this account.") }
+    } catch (error) {
+        console.log(queryUrl, error)
+        return { ok: false, message: cannotReach }
     }
 }

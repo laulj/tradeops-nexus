@@ -3,7 +3,8 @@ import { Alert, App, Button, Checkbox, Form, Input, Typography, Flex, Switch } f
 import { LockOutlined, UserOutlined, DashboardOutlined, LineChartOutlined, DollarOutlined, MoonOutlined, SunOutlined } from "@ant-design/icons"
 import { ThemeContext, UserContext } from "@/app/contexts"
 import { transitionTo } from "@/app/navigation"
-import { login, register, type AuthResponse } from "@/api/auth"
+import { createPlaygroundSession, login, register, type AuthResponse, type PlaygroundSessionResponse } from "@/api/auth"
+import { rememberSessionExpiry } from "@/app/sessionExpiry"
 import { queryClient } from "@/app/queryClient"
 import { applyThemeMode, persistThemeMode } from "@/app/themeMode"
 
@@ -42,6 +43,12 @@ export const LoginView: React.FC = () => {
         password: demoIntent ? "demo123" : "",
     }))
 
+    // Register mode either creates a permanent account or opens a temporary
+    // playground session. The checkbox picks which, and the credential fields are
+    // not rendered for the playground because there is nothing to fill in.
+    const populateDemo = Form.useWatch("populateDemo", form)
+    const playgroundMode = mode === "register" && (populateDemo ?? true)
+
     const switchMode = () => {
         setMode((current) => (current === "login" ? "register" : "login"))
         setServerError(null)
@@ -57,19 +64,28 @@ export const LoginView: React.FC = () => {
         setSubmitting(true)
         setServerError(null)
 
-        const username = values.username.trim()
-        const response: AuthResponse | false =
-            mode === "login" ? await login(username, values.password) : await register(username, values.password, values.populateDemo ?? false)
+        const username = values.username?.trim() ?? ""
+        // Three entry points: an existing account, a new permanent account, or a
+        // temporary playground session that needs no credentials at all.
+        const response: AuthResponse | PlaygroundSessionResponse | false =
+            mode === "login"
+                ? await login(username, values.password)
+                : playgroundMode
+                  ? await createPlaygroundSession()
+                  : await register(username, values.password, false)
 
-        if (response && typeof response === "object" && "accessToken" in response && response.accessToken) {
+        if (response && "accessToken" in response && response.accessToken) {
+            const accountName = response.username ?? username
             // Drop any data cached by a previous account so the new user never
             // sees another account's queries (query keys are user-agnostic).
-            localStorage.setItem(LAST_USER_KEY, username)
+            if (accountName) localStorage.setItem(LAST_USER_KEY, accountName)
             localStorage.setItem("accessToken", response.accessToken)
-            if (response.username) localStorage.setItem("username", response.username)
+            if (accountName) localStorage.setItem("username", accountName)
+            // Playground sessions carry a deadline; permanent accounts clear it.
+            rememberSessionExpiry(response.expiresAt ?? null)
             queryClient.clear()
             transitionTo("./")
-            setUser(response.username ?? username)
+            setUser(accountName)
             setIsLogin(true)
             // Component unmounts — AppShell takes over; no further state updates.
             return
@@ -81,16 +97,16 @@ export const LoginView: React.FC = () => {
 
         // Keep the attempted username so a later remount (session-expiry reload,
         // logout) never silently reverts to the shared demo credentials.
-        localStorage.setItem(LAST_USER_KEY, username)
+        if (username) localStorage.setItem(LAST_USER_KEY, username)
 
         const errorMessage =
-            response && typeof response === "object" && "message" in response && typeof response.message === "string"
+            response && "message" in response && typeof response.message === "string"
                 ? response.message
                 : fallbackError(mode)
 
         setServerError(errorMessage)
         notification.error({
-            message: mode === "login" ? "Sign-in failed" : "Registration failed",
+            message: mode === "login" ? "Sign-in failed" : playgroundMode ? "Playground unavailable" : "Registration failed",
             description: errorMessage,
             placement: "topRight",
             duration: 6,
@@ -204,41 +220,52 @@ export const LoginView: React.FC = () => {
                                 initialValues={initialValues}
                                 requiredMark={false}
                             >
-                                <Form.Item
-                                    name="username"
-                                    rules={
-                                        mode === "register"
-                                            ? [
-                                                  { required: true, message: "Please enter your username" },
-                                                  { min: 3, max: 32, message: "Username must be 3-32 characters long" },
-                                                  {
-                                                      pattern: /^[a-zA-Z0-9_.-]+$/,
-                                                      message: "Letters, numbers, '_', '.' and '-' only",
-                                                  },
-                                              ]
-                                            : [{ required: true, message: "Please enter your username" }]
-                                    }
-                                >
-                                    <Input
-                                        prefix={<UserOutlined className="text-gray-400" />}
-                                        placeholder="Username"
-                                        size="large"
-                                        autoComplete="username"
-                                        className={isDark ? "bg-[#2a2a2a] border-[#3a3a3a] text-white" : ""}
-                                    />
-                                </Form.Item>
+                                {!playgroundMode && (
+                                    <>
+                                        <Form.Item
+                                            name="username"
+                                            rules={
+                                                mode === "register"
+                                                    ? [
+                                                          { required: true, message: "Please enter your username" },
+                                                          {
+                                                              min: 3,
+                                                              max: 32,
+                                                              message: "Username must be 3-32 characters long",
+                                                          },
+                                                          {
+                                                              pattern: /^[a-zA-Z0-9_.-]+$/,
+                                                              message: "Letters, numbers, '_', '.' and '-' only",
+                                                          },
+                                                      ]
+                                                    : [{ required: true, message: "Please enter your username" }]
+                                            }
+                                        >
+                                            <Input
+                                                prefix={<UserOutlined className="text-gray-400" />}
+                                                placeholder="Username"
+                                                size="large"
+                                                autoComplete="username"
+                                                className={isDark ? "bg-[#2a2a2a] border-[#3a3a3a] text-white" : ""}
+                                            />
+                                        </Form.Item>
 
-                                <Form.Item name="password" rules={[{ required: true, message: "Please enter your password" }]}>
-                                    <Input.Password
-                                        prefix={<LockOutlined className="text-gray-400" />}
-                                        placeholder="Password"
-                                        size="large"
-                                        autoComplete="current-password"
-                                        className={isDark ? "bg-[#2a2a2a] border-[#3a3a3a] text-white" : ""}
-                                    />
-                                </Form.Item>
+                                        <Form.Item
+                                            name="password"
+                                            rules={[{ required: true, message: "Please enter your password" }]}
+                                        >
+                                            <Input.Password
+                                                prefix={<LockOutlined className="text-gray-400" />}
+                                                placeholder="Password"
+                                                size="large"
+                                                autoComplete="current-password"
+                                                className={isDark ? "bg-[#2a2a2a] border-[#3a3a3a] text-white" : ""}
+                                            />
+                                        </Form.Item>
+                                    </>
+                                )}
 
-                                {mode === "register" && (
+                                {mode === "register" && !playgroundMode && (
                                     <Form.Item
                                         name="confirmPassword"
                                         dependencies={["password"]}
@@ -263,11 +290,23 @@ export const LoginView: React.FC = () => {
                                 )}
 
                                 {mode === "register" && (
-                                    <Form.Item name="populateDemo" valuePropName="checked" initialValue={true} style={{ marginBottom: 16 }}>
+                                    <Form.Item
+                                        name="populateDemo"
+                                        valuePropName="checked"
+                                        initialValue={true}
+                                        style={{ marginBottom: playgroundMode ? 8 : 16 }}
+                                    >
                                         <Checkbox className={isDark ? "text-white" : ""}>
-                                            Pre-populate with sample data so you can explore the app
+                                            Explore with sample data in a temporary session
                                         </Checkbox>
                                     </Form.Item>
+                                )}
+
+                                {playgroundMode && (
+                                    <Text type="secondary" className="block text-xs mb-4">
+                                        No account or password needed: a sample portfolio is generated for you, and the session is
+                                        deleted when it expires.
+                                    </Text>
                                 )}
 
                                 {serverError && (
@@ -282,7 +321,7 @@ export const LoginView: React.FC = () => {
 
                                 <Form.Item style={{ marginBottom: 12 }}>
                                     <Button type="primary" htmlType="submit" block size="large" loading={submitting} className="mt-1">
-                                        {mode === "login" ? "Log in" : "Create Account"}
+                                        {mode === "login" ? "Log in" : playgroundMode ? "Start playground session" : "Create Account"}
                                     </Button>
                                 </Form.Item>
 
@@ -299,7 +338,9 @@ export const LoginView: React.FC = () => {
                                         </button>
                                     ) : (
                                         <Text type="secondary" className="text-xs">
-                                            New users start with an empty portfolio
+                                            {playgroundMode
+                                                ? "Temporary session — deleted when it expires"
+                                                : "New users start with an empty portfolio"}
                                         </Text>
                                     )}
                                     <Text type="secondary" className="text-xs text-nowrap">

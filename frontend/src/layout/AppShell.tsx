@@ -28,6 +28,8 @@ import { Dashboard } from "@/pages/dashboard"
 import { useProfitQuery, useTxCountQuery } from "@/hooks/useProfits"
 import { LiveDot, SectionLabel } from "@/components/ui"
 import { applyThemeMode, persistThemeMode } from "@/app/themeMode"
+import { readSessionExpiry } from "@/app/sessionExpiry"
+import { PlaygroundBanner } from "@/layout/PlaygroundBanner"
 const Profit = lazy(() => import("@/pages/profit").then((mod) => ({ default: mod.Profit })))
 const Setting = lazy(() => import("@/pages/settings").then((mod) => ({ default: mod.Setting })))
 const Balance = lazy(() => import("@/pages/balance/Balance").then((mod) => ({ default: mod.Balance })))
@@ -67,7 +69,7 @@ export const AppShell: FC<{
     globalToken: AliasToken
 }> = ({ globalToken }): React.ReactElement => {
     const siderCollapseStatus = "siderCollapseStatus"
-    const { notification } = App.useApp()
+    const { notification, modal } = App.useApp()
     // Check if we are on a mobile-sized viewport (below 'md')
     const screens = useBreakpoint()
     const isMobile = !screens.md
@@ -112,7 +114,7 @@ export const AppShell: FC<{
             getItem("Settings", "group-settings", undefined, settingsChildren, "group"),
         ]
     }, [user, isMobile])
-    const onLogOut = async () => {
+    const performLogOut = async () => {
         const ok = await logout()
         // Drop all cached queries so the next account never sees this user's data.
         queryClient.clear()
@@ -133,6 +135,24 @@ export const AppShell: FC<{
         }
         // Return guests to the sign-in screen (landing page lives at "/").
         transitionTo("/login")
+    }
+
+    const onLogOut = async () => {
+        const expiresAt = readSessionExpiry()
+        if (expiresAt !== null && expiresAt > Date.now()) {
+            // Signing out deletes a playground session, so say so rather than
+            // discarding someone's sample data on a stray click.
+            modal.confirm({
+                title: "Discard this temporary session?",
+                content:
+                    'Signing out deletes the playground account and its sample data. Use "Keep this account" first if you want to keep it.',
+                okText: "Sign out",
+                cancelText: "Stay",
+                onOk: () => performLogOut(),
+            })
+            return
+        }
+        await performLogOut()
     }
 
     const [activeKey, setActiveKey] = useState<string>("USDC")
@@ -341,6 +361,8 @@ export const AppShell: FC<{
                     </Header>
 
                     <Content style={{ ...contentStyle, padding: isMobile ? "0.5rem" : "1em" }}>
+                        {/* Renders only for a playground session; permanent accounts see nothing. */}
+                        <PlaygroundBanner />
                         <Suspense fallback={<Spin spinning={isRouteReady} fullscreen delay={200} />}>
                             <div className="!p-0">{getContent()}</div>
                         </Suspense>
