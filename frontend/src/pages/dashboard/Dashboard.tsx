@@ -254,7 +254,6 @@ export const Dashboard: FC<{
     }))
 
     const windowTotal = totalMetrics[tradeTypes.total][activeSlice]
-    console.log("profitData", profitData)
     return (
         <div className="flex flex-col gap-3 text-left sm:gap-4">
             {/* ── Metric tiles ─────────────────────────────────────────────── */}

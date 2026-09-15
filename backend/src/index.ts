@@ -6,7 +6,16 @@ import { bytesToHex, equalsBytes } from "ethereum-cryptography/utils"
 import { authenticateMiddleware, initMiddleware } from "./middleware"
 import { requireAdmin } from "./guards"
 import { ADMIN_USERNAME, DEMO_USERNAME, isProduction, isReservedUsername } from "./credentials"
-import { database, countUsers, getUser, createUser, isStorageFullError, listUsers, setUserExpiry, promoteUser } from "./database"
+import {
+    database,
+    countUsers,
+    getUser,
+    createUser,
+    isStorageFullError,
+    listUsers,
+    setUserExpiry,
+    promoteUser,
+} from "./database"
 import { addEgressBytes, getAlertState, readEgressBytes, setAlertState } from "./database"
 import { populateDemoData, removeUserData, demoAddress, DEMO_SYMBOLS, ensureDemoPopulated } from "./demoData"
 import {
@@ -101,28 +110,28 @@ export interface balanceResponse {
 }
 // Seed status/upTime for the bootstrap admin account (existing behaviour kept).
 const adminStatus: Status = {
-    "0x21b412d9A4368E6ff5b6d301e4Aa64ff8b8aA7db": {
-        AKT: "Good",
-        OSMO: "Good",
-        FET: "Good",
-        testingCustomLongName: "Good",
-    },
-    "0x24a11145044a453C39B028F6A3C8d80fB9e48885": { OSMO: "Good", testingCustomLongName: "Good" },
+    // "0x21b412d9A4368E6ff5b6d301e4Aa64ff8b8aA7db": {
+    //     AKT: "Good",
+    //     OSMO: "Good",
+    //     FET: "Good",
+    //     testingCustomLongName: "Good",
+    // },
+    // "0x24a11145044a453C39B028F6A3C8d80fB9e48885": { OSMO: "Good", testingCustomLongName: "Good" },
 }
 const adminUpTime: UpTime = {
-    "0x21b412d9A4368E6ff5b6d301e4Aa64ff8b8aA7db": {
-        AKT: { start: (Date.now() - 1 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
-        OSMO: { start: (Date.now() - 100 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
-        FET: { start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
-        testingCustomLongName: {
-            start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(),
-            end: Date.now().toString(),
-        },
-    },
-    "0x24a11145044a453C39B028F6A3C8d80fB9e48885": {
-        OSMO: { start: (Date.now() - 100 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
-        testingCustomLongName: { start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
-    },
+    // "0x21b412d9A4368E6ff5b6d301e4Aa64ff8b8aA7db": {
+    //     AKT: { start: (Date.now() - 1 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
+    //     OSMO: { start: (Date.now() - 100 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
+    //     FET: { start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
+    //     testingCustomLongName: {
+    //         start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(),
+    //         end: Date.now().toString(),
+    //     },
+    // },
+    // "0x24a11145044a453C39B028F6A3C8d80fB9e48885": {
+    //     OSMO: { start: (Date.now() - 100 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
+    //     testingCustomLongName: { start: (Date.now() - 1000 * 24 * 60 * 60 * 1000).toString(), end: Date.now().toString() },
+    // },
 }
 
 // Seed status/upTime for demo-populated accounts (derived deterministically from
@@ -276,8 +285,10 @@ const smallJson = express.json({ limit: smallBodyLimit() })
 const smallForm = express.urlencoded({ limit: smallBodyLimit(), extended: true })
 const largeJson = express.json({ limit: dataBodyLimit() })
 const largeForm = express.urlencoded({ limit: dataBodyLimit(), extended: true })
-const unlessData = (parser: RequestHandler): RequestHandler => (req, res, next) =>
-    req.path.startsWith("/data") ? next() : parser(req, res, next)
+const unlessData =
+    (parser: RequestHandler): RequestHandler =>
+    (req, res, next) =>
+        req.path.startsWith("/data") ? next() : parser(req, res, next)
 
 app.use(unlessData(smallJson))
 app.use(unlessData(smallForm)) // For parsing application/x-www-form-urlencoded
@@ -311,9 +322,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
     // Every playground session seeds thousands of rows, so it stops first.
     if (req.path.startsWith("/playground/")) {
-        return res
-            .status(503)
-            .json({ error: "The playground is paused while this deployment is over its bandwidth budget" })
+        return res.status(503).json({ error: "The playground is paused while this deployment is over its bandwidth budget" })
     }
 
     if (!isAnonymousRequest(req.headers)) return next()
@@ -340,10 +349,7 @@ app.use(["/login", "/register", "/logout", "/status", "/users", "/data"], apiRat
 app.use(["/login", "/register"], authRateLimiter())
 app.use("/playground", playgroundRateLimiter())
 // A restore is destructive and rare, so it gets the tightest budget of all.
-app.use(
-    "/admin",
-    createRateLimiter({ name: "admin-restore", windowMs: () => 60 * 60 * 1000, max: restoreRateLimitMax }),
-)
+app.use("/admin", createRateLimiter({ name: "admin-restore", windowMs: () => 60 * 60 * 1000, max: restoreRateLimitMax }))
 
 export async function authenticate(name: string, pass: object) {
     if (!name || !pass) return false
@@ -741,87 +747,80 @@ const snapshotCurrentDatabase = async (target: RestoreTarget): Promise<string | 
 // Stage a database file for restore. The upload is streamed to `<db>.pending`,
 // verified with SQLite's own integrity check, and swapped in at the next start —
 // which the host performs on every deploy, so nothing has to be locked here.
-app.post(
-    "/admin/restore/:target",
-    authenticateMiddleware,
-    requireAdmin,
-    async (req: Request, res: Response) => {
-        const target = String(req.params.target ?? "")
-        if (!isRestoreTarget(target)) {
-            return res
-                .status(400)
-                .json({ error: `Unknown restore target. Expected one of: ${RESTORE_TARGETS.join(", ")}` })
-        }
+app.post("/admin/restore/:target", authenticateMiddleware, requireAdmin, async (req: Request, res: Response) => {
+    const target = String(req.params.target ?? "")
+    if (!isRestoreTarget(target)) {
+        return res.status(400).json({ error: `Unknown restore target. Expected one of: ${RESTORE_TARGETS.join(", ")}` })
+    }
 
-        const pending = pendingPathFor(target)
+    const pending = pendingPathFor(target)
 
-        try {
-            const { bytes } = await stageUpload(req, pending, maxRestoreBytes())
-            if (bytes === 0) {
-                await removeFile(pending)
-                return res.status(400).json({ error: "The upload was empty" })
-            }
-
-            // Verify before anything is swapped, so a bad upload can only ever
-            // cost a staged file. A file that is not SQLite at all throws here
-            // rather than reporting a status.
-            let inspection
-            try {
-                inspection = await inspectSqliteFile(pending)
-            } catch (inspectionError) {
-                console.error("Rejected a restore: not a SQLite file:", inspectionError)
-                await removeFile(pending)
-                return res.status(422).json({ error: "That file is not a usable SQLite database" })
-            }
-            if (inspection.integrity !== "ok" || inspection.tables.length === 0) {
-                await removeFile(pending)
-                return res.status(422).json({
-                    error: `That file is not a usable SQLite database (integrity: ${inspection.integrity})`,
-                })
-            }
-            // Integrity only proves it is *a* SQLite database. Requiring the tables
-            // this target actually has stops an unrelated file (a browser profile,
-            // another app's export) from being staged over a live database.
-            const missingTables = missingRequiredTables(target, inspection.tables)
-            if (missingTables.length > 0) {
-                await removeFile(pending)
-                return res.status(422).json({
-                    error: `That file is not a ${target} database (missing: ${missingTables.join(", ")})`,
-                })
-            }
-
-            const digest = await sha256File(pending)
-            const expected = String(req.headers["x-content-sha256"] ?? "")
-                .trim()
-                .toLowerCase()
-            if (expected && expected !== digest) {
-                await removeFile(pending)
-                return res.status(422).json({ error: "The upload did not match the checksum the client sent" })
-            }
-
-            const snapshot = await snapshotCurrentDatabase(target)
-            console.log(
-                `INFO -- staged a ${target} restore (${bytes} bytes, sha256 ${digest.slice(0, 12)}…, snapshot ${snapshot ? snapshot.split("/").pop() : "none"})`,
-            )
-            return res.status(202).json({
-                ok: true,
-                target,
-                bytes,
-                sha256: digest,
-                staged: pending.split("/").pop(),
-                snapshot: snapshot ? snapshot.split("/").pop() : null,
-                restartRequired: true,
-            })
-        } catch (err) {
+    try {
+        const { bytes } = await stageUpload(req, pending, maxRestoreBytes())
+        if (bytes === 0) {
             await removeFile(pending)
-            if ((err as { code?: string } | undefined)?.code === "RESTORE_TOO_LARGE") {
-                return res.status(413).json({ error: "That file is larger than this deployment accepts for a restore" })
-            }
-            console.error("Failed to stage a database restore:", err)
-            return res.status(500).json({ error: "Failed to stage the restore" })
+            return res.status(400).json({ error: "The upload was empty" })
         }
-    },
-)
+
+        // Verify before anything is swapped, so a bad upload can only ever
+        // cost a staged file. A file that is not SQLite at all throws here
+        // rather than reporting a status.
+        let inspection
+        try {
+            inspection = await inspectSqliteFile(pending)
+        } catch (inspectionError) {
+            console.error("Rejected a restore: not a SQLite file:", inspectionError)
+            await removeFile(pending)
+            return res.status(422).json({ error: "That file is not a usable SQLite database" })
+        }
+        if (inspection.integrity !== "ok" || inspection.tables.length === 0) {
+            await removeFile(pending)
+            return res.status(422).json({
+                error: `That file is not a usable SQLite database (integrity: ${inspection.integrity})`,
+            })
+        }
+        // Integrity only proves it is *a* SQLite database. Requiring the tables
+        // this target actually has stops an unrelated file (a browser profile,
+        // another app's export) from being staged over a live database.
+        const missingTables = missingRequiredTables(target, inspection.tables)
+        if (missingTables.length > 0) {
+            await removeFile(pending)
+            return res.status(422).json({
+                error: `That file is not a ${target} database (missing: ${missingTables.join(", ")})`,
+            })
+        }
+
+        const digest = await sha256File(pending)
+        const expected = String(req.headers["x-content-sha256"] ?? "")
+            .trim()
+            .toLowerCase()
+        if (expected && expected !== digest) {
+            await removeFile(pending)
+            return res.status(422).json({ error: "The upload did not match the checksum the client sent" })
+        }
+
+        const snapshot = await snapshotCurrentDatabase(target)
+        console.log(
+            `INFO -- staged a ${target} restore (${bytes} bytes, sha256 ${digest.slice(0, 12)}…, snapshot ${snapshot ? snapshot.split("/").pop() : "none"})`,
+        )
+        return res.status(202).json({
+            ok: true,
+            target,
+            bytes,
+            sha256: digest,
+            staged: pending.split("/").pop(),
+            snapshot: snapshot ? snapshot.split("/").pop() : null,
+            restartRequired: true,
+        })
+    } catch (err) {
+        await removeFile(pending)
+        if ((err as { code?: string } | undefined)?.code === "RESTORE_TOO_LARGE") {
+            return res.status(413).json({ error: "That file is larger than this deployment accepts for a restore" })
+        }
+        console.error("Failed to stage a database restore:", err)
+        return res.status(500).json({ error: "Failed to stage the restore" })
+    }
+})
 
 // List all registered users (username, created_at, demo_populated).
 app.get("/users", authenticateMiddleware, requireAdmin, async (_req: Request, res: Response) => {
@@ -884,9 +883,7 @@ app.post("/playground/session", async (_req: Request, res: Response) => {
 
     try {
         if ((await livePlaygroundSessionCount()) >= maxPlaygroundAccounts()) {
-            return res
-                .status(503)
-                .json({ error: "The playground is at capacity right now — sign in with userDemo instead" })
+            return res.status(503).json({ error: "The playground is at capacity right now — sign in with userDemo instead" })
         }
 
         const { username, expiresAt } = await createPlaygroundSession()
