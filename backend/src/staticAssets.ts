@@ -16,7 +16,7 @@ import path from "path"
 /** Hashed chunk files: safe to cache until the name changes (i.e. forever). */
 export const HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
-/** Named files (`index.html`, `favicon.ico`, `og-image.png`): always revalidate. */
+/** Named files (`index.html`, `favicon.svg`, `og-image.png`): always revalidate. */
 export const NAMED_FILE_CACHE_CONTROL = "no-cache"
 
 /**
