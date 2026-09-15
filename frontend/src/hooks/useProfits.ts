@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { tradeTypes, views, type aggregatedProfitResp } from "@/types"
-import { fetchAggregatedData, fetchRawData } from "@/api/backend"
+import { fetchAggregatedData, fetchRawData, groupProfitByTimestamp, mergeProfitPages } from "@/api/backend"
 
 // Symbol lists come from a separate query, so they are legitimately undefined
 // until it resolves. Typing them optional keeps "not loaded yet" out of the type
@@ -68,28 +68,22 @@ const getProfitAggregatedTotal = async (pairingByType: uniqueSymQuery, activeAdd
         ),
     ]
     const [spot, spotFuture, fundingR] = await Promise.all(view === views.Intraday ? rawRequests() : aggregatedRequests())
-    const total: {
-        [key: string]: aggregatedProfitResp[]
-    } = {}
-    let totalTxs = 0
-    for (const data of [spot, spotFuture, fundingR]) {
-        if (data) totalTxs += +data?.pagination.total
-        for (const key in data!["data"]) {
-            if (!total[key]) total[key] = []
-
-            total[key].push(...data!["data"][key])
-        }
-    }
+    // The three databases are merged by the same helpers the Profit page uses, so the
+    // dashboard's total series and the Profit page's total table cannot disagree.
+    const merged = mergeProfitPages<aggregatedProfitResp>({
+        [tradeTypes.spot]: spot,
+        [tradeTypes.spotFuture]: spotFuture,
+        [tradeTypes.fundingRate]: fundingR,
+    })
+    // Raw fills are one row per fill and stay that way; aggregated rows are one row per
+    // period per database, so the three sources have to be summed rather than listed.
+    const total = view === views.Intraday ? merged : groupProfitByTimestamp(merged)
     return {
-        [tradeTypes.total]: total,
+        [tradeTypes.total]: total.data,
         [tradeTypes.spot]: spot?.data ?? {},
         [tradeTypes.spotFuture]: spotFuture?.data ?? {},
         [tradeTypes.fundingRate]: fundingR?.data ?? {},
-        pagination: {
-            current: spot?.pagination.current || spotFuture?.pagination.current || fundingR?.pagination.current,
-            pageSize: spot?.pagination.pageSize || spotFuture?.pagination.pageSize || fundingR?.pagination.pageSize,
-            total: totalTxs,
-        },
+        pagination: total.pagination,
     }
 }
 

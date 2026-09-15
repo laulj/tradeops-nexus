@@ -423,8 +423,8 @@ const ClosingCta: React.FC = () => (
                 Ready for <span className="font-display-italic text-shimmer">one clear view?</span>
             </h2>
             <p data-reveal className="font-metric mx-auto mt-6 max-w-xl justify-self-center !text-[1.3em] !text-zinc-400">
-                Spin up the demo with a single click — the account is preloaded with sample data so the charts are alive before you finish your
-                coffee.
+                Spin up the demo with a single click — the sample account generates three years of history on first sign-in, so the charts open
+                with real volume behind them.
             </p>
             <div data-reveal className="mt-10 flex flex-wrap items-center justify-center gap-3">
                 <button

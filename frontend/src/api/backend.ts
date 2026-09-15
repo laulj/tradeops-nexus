@@ -743,6 +743,106 @@ export const restoreDatabase = async (target: RestoreTarget, file: File): Promis
     }
 }
 
+// ── Merging the three profit databases (the "total" view) ──────────────────
+// Spot, perpetual-futures and funding-rate rows live in three separate databases
+// behind three separate endpoints, so no single request can answer "total" — the
+// fan-out and the merge belong here. Both fetchers below share one helper so the
+// merged payload always matches the component that renders it: rawProfitResp rows
+// for ProfitIntradayView, aggregatedProfitResp rows for AggregatedView.
+export type profitSource = typeof tradeTypes.spot | typeof tradeTypes.spotFuture | typeof tradeTypes.fundingRate
+
+export type profitPage<T> = {
+    data: { [key: string]: T[] }
+    pagination: { current?: number; pageSize?: number; total: number }
+}
+
+/**
+ * Concatenates the per-symbol rows of the given profit pages and sums their totals.
+ *
+ * Every endpoint keys its rows `${BASE}_${QUOTE}_${index}`, so a plain concat would
+ * repeat keys across sources — each row is re-tagged with the source it came from to
+ * keep them unique, since the tables use `record.key` as their implicit rowKey.
+ *
+ * A source may be legitimately absent: a symbol that only exists in one database makes
+ * the other endpoints answer 400, which the getters surface as `undefined`. Those are
+ * skipped rather than dereferenced (the inline merge this replaces threw on them).
+ */
+export const mergeProfitPages = <T extends aggregatedProfitResp>(
+    pages: Partial<Record<profitSource, profitPage<T> | undefined>>,
+    normalize?: (row: T) => T,
+): profitPage<T> => {
+    const data: { [key: string]: T[] } = {}
+    let total = 0
+    let current: number | undefined
+    let pageSize: number | undefined
+
+    for (const source of Object.keys(pages) as profitSource[]) {
+        const page = pages[source]
+        if (!page) continue
+
+        // Every source is asked for the same page, so the first one answers for all.
+        current ??= page.pagination.current
+        pageSize ??= page.pagination.pageSize
+        total += page.pagination.total ?? 0
+
+        for (const key in page.data) {
+            data[key] ??= []
+            data[key].push(...page.data[key].map((row) => ({ ...(normalize ? normalize(row) : row), key: `${source}_${row.key}` })))
+        }
+    }
+
+    return { data, pagination: { current, pageSize, total } }
+}
+
+/**
+ * Sums the rows that share a (symbol, period) bucket.
+ *
+ * Aggregated responses are bucketed per database, so merging three sources makes one
+ * date appear up to three times holding a third of the PNL each. `amount` becomes the
+ * sum and `ratio` the amount-weighted mean — the same formula the backend applies inside
+ * a bucket (`SUM(amount*ratio)/SUM(amount)`, databaseRouter.ts:895) — so a bucket fed by
+ * a single source keeps its ratio exactly, and a merged bucket equals what one query over
+ * a combined table would return.
+ *
+ * Pagination passes through untouched: `total` counts source rows, not buckets (one page
+ * per source cannot tell us how many buckets exist), which is what the Profit page's
+ * "latest x-y of N" and its prefetch maths already assume.
+ */
+export const groupProfitByTimestamp = <T extends aggregatedProfitResp>(page: profitPage<T>): profitPage<T> => {
+    const data: { [key: string]: T[] } = {}
+
+    for (const key in page.data) {
+        const buckets = new Map<string, T>()
+
+        for (const row of page.data[key]) {
+            const bucket = buckets.get(row.timestamp)
+            if (!bucket) {
+                buckets.set(row.timestamp, { ...row })
+                continue
+            }
+            // Weight the ratio by the amounts behind it before folding this row in, so the
+            // running product still reflects the amounts accumulated so far.
+            const weighted = bucket.amount * bucket.ratio + row.amount * row.ratio
+            const amount = bucket.amount + row.amount
+            bucket.amount = amount
+            bucket.ratio = amount === 0 ? 0 : weighted / amount
+        }
+
+        for (const [timestamp, row] of buckets) {
+            // A bucket is a sum over sources, so its key names the bucket, not a source.
+            row.key = `${key}_${timestamp}`
+            // The backend rounds each source row to four decimals; the sum needs the same
+            // treatment or 10 + 20 + 30 can surface as 60.00000000000001.
+            row.amount = Number(row.amount.toFixed(4))
+            row.ratio = Number(row.ratio.toFixed(4))
+        }
+
+        data[key] = [...buckets.values()]
+    }
+
+    return { data, pagination: page.pagination }
+}
+
 export const fetchRawData = async (
     pairing: pairing[],
     activeAddress: string,
@@ -769,7 +869,7 @@ export const fetchRawData = async (
     } = { data: {}, pagination: { current: pagination.current!, pageSize: pagination.pageSize!, total: pagination.total! } }
     if (viewType !== views.Intraday) return resp
 
-    if (tradeType === tradeTypes.total || tradeType === tradeTypes.spot)
+    if (tradeType === tradeTypes.spot)
         resp = (await getRawProfitDetailsBatch(
             pairing,
             pagination.current,
@@ -779,7 +879,52 @@ export const fetchRawData = async (
             calenderFilter.endDate,
             countOnly,
         ))!
-    else if (tradeType === tradeTypes.spotFuture)
+    else if (tradeType === tradeTypes.total) {
+        const [spot, spotFuture, fundingRate] = await Promise.all([
+            getRawProfitDetailsBatch(
+                pairing,
+                pagination.current,
+                pagination.pageSize,
+                activeAddress === "ALL" ? undefined : activeAddress,
+                calenderFilter.startDate,
+                calenderFilter.endDate,
+                countOnly,
+            ),
+            getRawSpotFutureProfitDetailsBatch(
+                pairing,
+                pagination.current,
+                pagination.pageSize,
+                activeAddress === "ALL" ? undefined : activeAddress,
+                calenderFilter.startDate,
+                calenderFilter.endDate,
+                countOnly,
+            ),
+            getRawFundingRProfitDetailsBatch(
+                pairing,
+                pagination.current,
+                pagination.pageSize,
+                activeAddress === "ALL" ? undefined : activeAddress,
+                calenderFilter.startDate,
+                calenderFilter.endDate,
+                countOnly,
+            ),
+        ])
+        // Perp-futures and funding-rate fills carry exchange-leg ids instead of the
+        // orderId/txHash this table renders, so default those two: every merged row has
+        // to stay a valid rawProfitResp for ProfitIntradayView.
+        const merged = mergeProfitPages<rawProfitResp>(
+            { [tradeTypes.spot]: spot, [tradeTypes.spotFuture]: spotFuture, [tradeTypes.fundingRate]: fundingRate },
+            (row) => ({ ...row, orderId: row.orderId ?? "", txHash: row.txHash ?? "" }),
+        )
+        resp = {
+            data: merged.data,
+            pagination: {
+                current: merged.pagination.current ?? pagination.current!,
+                pageSize: merged.pagination.pageSize ?? pagination.pageSize!,
+                total: merged.pagination.total,
+            },
+        }
+    } else if (tradeType === tradeTypes.spotFuture)
         resp = (await getRawSpotFutureProfitDetailsBatch(
             pairing,
             pagination.current,
@@ -823,7 +968,7 @@ export const fetchAggregatedData = async (
     } = { data: {}, pagination: { current: pagination.current!, pageSize: pagination.pageSize!, total: pagination.total! } }
     if (viewType === views.Intraday) return undefined
 
-    if (tradeType === tradeTypes.total || tradeType === tradeTypes.spot)
+    if (tradeType === tradeTypes.spot)
         resp = (await getAggregatedProfitDetailsBatch(
             pairing,
             viewType,
@@ -833,7 +978,55 @@ export const fetchAggregatedData = async (
             calenderFilter?.startDate,
             calenderFilter?.endDate,
         ))!
-    else if (tradeType === tradeTypes.spotFuture) {
+    else if (tradeType === tradeTypes.total) {
+        const [spot, spotFuture, fundingRate] = await Promise.all([
+            getAggregatedProfitDetailsBatch(
+                pairing,
+                viewType,
+                pagination.current,
+                pagination.pageSize,
+                activeAddress === "ALL" ? undefined : activeAddress,
+                calenderFilter?.startDate,
+                calenderFilter?.endDate,
+            ),
+            getAggregatedSpotFutureProfitDetailsBatch(
+                pairing,
+                viewType,
+                pagination.current,
+                pagination.pageSize,
+                activeAddress === "ALL" ? undefined : activeAddress,
+                calenderFilter?.startDate,
+                calenderFilter?.endDate,
+            ),
+            getAggregatedFundingRProfitDetailsBatch(
+                pairing,
+                viewType,
+                pagination.current,
+                pagination.pageSize,
+                activeAddress === "ALL" ? undefined : activeAddress,
+                calenderFilter?.startDate,
+                calenderFilter?.endDate,
+            ),
+        ])
+        // "total" spans the three databases; the merged rows stay aggregatedProfitResp,
+        // which is the shape AggregatedView renders. Merging alone leaves one partial row
+        // per source per period, so the buckets are summed afterwards.
+        const merged = groupProfitByTimestamp(
+            mergeProfitPages<aggregatedProfitResp>({
+                [tradeTypes.spot]: spot,
+                [tradeTypes.spotFuture]: spotFuture,
+                [tradeTypes.fundingRate]: fundingRate,
+            }),
+        )
+        resp = {
+            data: merged.data,
+            pagination: {
+                current: merged.pagination.current ?? pagination.current!,
+                pageSize: merged.pagination.pageSize ?? pagination.pageSize!,
+                total: merged.pagination.total,
+            },
+        }
+    } else if (tradeType === tradeTypes.spotFuture) {
         resp = (await getAggregatedSpotFutureProfitDetailsBatch(
             pairing,
             viewType,
