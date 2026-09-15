@@ -565,7 +565,7 @@ dataRouter.post("/profits/pairing/aggregated/batch", async (req: Request, res: R
                     LEFT JOIN transactions AS tx ON tx.dexId = ${quoteSymbol}Txs.txHash OR tx.cexId = ${quoteSymbol}Txs.orderId
                     LEFT JOIN cexTxs AS ctx ON ctx.orderId = tx.cexId  
                     LEFT JOIN dexTxs AS dtx ON dtx.txHash = tx.dexId 
-                    WHERE tx.timestamp IS NOT NULL AND tx.username = ? AND (ctx.tokenIn = "${baseSymbol}" OR ctx.tokenOut = "${baseSymbol}") AND (dtx.tokenIn = "${baseSymbol}" OR dtx.tokenOut = "${baseSymbol}")
+                    WHERE tx.timestamp IS NOT NULL AND tx.username = ? AND (ctx.tokenIn = "${baseSymbol}" OR ctx.tokenOut = "${baseSymbol}" OR dtx.tokenIn = "${baseSymbol}" OR dtx.tokenOut = "${baseSymbol}")
 
                 `
             // Clone the base params so each query has its own array
@@ -676,7 +676,11 @@ dataRouter.post("/profits-details/pairing/batch", async (req: Request, res: Resp
             let whereParams: any[] = [username]
             // console.log("base quote", base, quote)
             if (base !== "ALL") {
-                whereConditions.push(...["(ctx.tokenIn = ? OR ctx.tokenOut = ?)", "(dtx.tokenIn = ? OR dtx.tokenOut = ?)"])
+                // A trade may have a CEX leg, a DEX leg, or both. Requiring the base token on
+                // both sides made the LEFT JOINs drop every CEX-only leg (NULL = ? is never
+                // true), which silently removed the USDC<->USDT conversion legs - and those
+                // are all loss-making, so the total read high.
+                whereConditions.push("(ctx.tokenIn = ? OR ctx.tokenOut = ? OR dtx.tokenIn = ? OR dtx.tokenOut = ?)")
                 whereParams.push(...[base, base, base, base])
             }
             if (address) {
@@ -775,7 +779,7 @@ dataRouter.post("/profits-details/pairing/batch", async (req: Request, res: Resp
 dataRouter.post("/profits-details/pairing/aggregated/batch", async (req: Request, res: Response) => {
     const db = database.db as Database
     const username = req.user!
-    console.log("/profits-details/pairing/aggregated/batch", req.body.pairings)
+    // console.log("/profits-details/pairing/aggregated/batch", req.body.pairings)
     const pairings = req.body.pairings as pairing[] | undefined
     const interval = req.body.interval
     const address = req.body.address
@@ -858,7 +862,11 @@ dataRouter.post("/profits-details/pairing/aggregated/batch", async (req: Request
                 endParams: any[] = []
 
             if (base !== "ALL") {
-                whereConditions.push(...["(ctx.tokenIn = ? OR ctx.tokenOut = ?)", "(dtx.tokenIn = ? OR dtx.tokenOut = ?)"])
+                // A trade may have a CEX leg, a DEX leg, or both. Requiring the base token on
+                // both sides made the LEFT JOINs drop every CEX-only leg (NULL = ? is never
+                // true), which silently removed the USDC<->USDT conversion legs - and those
+                // are all loss-making, so the total read high.
+                whereConditions.push("(ctx.tokenIn = ? OR ctx.tokenOut = ? OR dtx.tokenIn = ? OR dtx.tokenOut = ?)")
                 whereParams.push(...[base, base, base, base])
             }
             if (address) {

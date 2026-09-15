@@ -312,7 +312,7 @@ spotFutureDataRouter.post("/txs", async (req: Request, res: Response) => {
 
                     LEFT JOIN hlTxs AS hl ON hl.id = tx.hlId
                     LEFT JOIN osmTxs AS osm ON osm.id = tx.osmId
-                    LEFT JOIN injTxs AS inj ON gate.id = tx.injId
+                    LEFT JOIN injTxs AS inj ON inj.id = tx.injId
                     LEFT JOIN dydxTxs AS dydx ON dydx.id = tx.dydxId
                     LEFT JOIN boltTxs AS bolt ON bolt.id = tx.boltId
                     LEFT JOIN suilTxs AS suil ON suil.id = tx.suilId
@@ -455,7 +455,7 @@ spotFutureDataRouter.post("/openedPositions", async (req: Request, res: Response
 
                     LEFT JOIN hlTxs AS hl ON hl.id = tx.hlId
                     LEFT JOIN osmTxs AS osm ON osm.id = tx.osmId
-                    LEFT JOIN injTxs AS inj ON gate.id = tx.injId
+                    LEFT JOIN injTxs AS inj ON inj.id = tx.injId
                     LEFT JOIN dydxTxs AS dydx ON dydx.id = tx.dydxId
                     LEFT JOIN boltTxs AS bolt ON bolt.id = tx.boltId
                     LEFT JOIN suilTxs AS suil ON suil.id = tx.suilId
@@ -662,7 +662,7 @@ spotFutureDataRouter.post("/profits-details/pairing/batch", async (req: Request,
                     }
                     const tokenOutSql = "(" + tokenOutConditions.join(" OR ") + ")"
 
-                    whereConditions.push(tokenInSql + " AND " + tokenOutSql)
+                    whereConditions.push("(" + tokenInSql + " OR " + tokenOutSql + ")")
                 }
                 if (address) {
                     whereConditions.push("optx.address = ?")
@@ -912,9 +912,9 @@ spotFutureDataRouter.post("/profits-details/pairing/aggregated/batch", async (re
 
                         whereParams.push(...[base, base])
                     }
-                    const tokenOutSql = "(" + tokenInConditions.join(" OR ") + ")"
+                    const tokenOutSql = "(" + tokenOutConditions.join(" OR ") + ")"
 
-                    whereConditions.push(tokenInSql + " AND " + tokenOutSql)
+                    whereConditions.push("(" + tokenInSql + " OR " + tokenOutSql + ")")
                 }
                 if (address) {
                     whereConditions.push("cptx.address = ?")
