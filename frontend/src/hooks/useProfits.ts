@@ -126,11 +126,27 @@ export const useProfitQuery = (pairingByType: uniqueSymQuery, activeAddress: str
  * whole shell.
  */
 const getTxCount = async (pairingByType: uniqueSymQuery, activeAddress: string) => {
-    const noPaging = { current: 1, pageSize: 1 }
+    const noPaging = { current: 1, pageSize: 50 }
     const [spot, spotFuture, fundingRate] = await Promise.all([
         fetchRawData(convertToPairing(pairingByType[tradeTypes.spot]), activeAddress, tradeTypes.spot, views.Intraday, noPaging, {}, true),
-        fetchRawData(convertToPairing(pairingByType[tradeTypes.spotFuture]), activeAddress, tradeTypes.spotFuture, views.Intraday, noPaging, {}, true),
-        fetchRawData(convertToPairing(pairingByType[tradeTypes.fundingRate]), activeAddress, tradeTypes.fundingRate, views.Intraday, noPaging, {}, true),
+        fetchRawData(
+            convertToPairing(pairingByType[tradeTypes.spotFuture]),
+            activeAddress,
+            tradeTypes.spotFuture,
+            views.Intraday,
+            noPaging,
+            {},
+            true,
+        ),
+        fetchRawData(
+            convertToPairing(pairingByType[tradeTypes.fundingRate]),
+            activeAddress,
+            tradeTypes.fundingRate,
+            views.Intraday,
+            noPaging,
+            {},
+            true,
+        ),
     ])
     return (spot?.pagination.total ?? 0) + (spotFuture?.pagination.total ?? 0) + (fundingRate?.pagination.total ?? 0)
 }

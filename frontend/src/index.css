@@ -5,6 +5,9 @@
 @layer base, tailwind-utilities, antd;
 
 @import "tailwindcss";
+/* Brand fonts are self-hosted (see src/styles/fonts.css) so no third-party
+   origin sits in the paint path. */
+@import "./styles/fonts.css";
 
 @layer base {
 :root {

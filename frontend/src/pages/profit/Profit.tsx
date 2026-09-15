@@ -415,7 +415,7 @@ export const Profit: FC<{
             <div>
                 <Splitter
                     // Essential: The splitter needs a height to distribute space vertically
-                    style={{ ...style, height: "calc(100vh - 290px)" }}
+                    style={{ ...style, height: "calc(100vh - 250px)" }}
                     onResizeEnd={(sizes) => {
                         localStorage.setItem(SPLITTER_SIZES, JSON.stringify(sizes))
                     }}
