@@ -1,6 +1,6 @@
 import { type balanceResponse, views } from "@/types"
 
-export const truncateHash = (hash: string, startLength: number = 6, endLength: number = 4): string => {
+export const truncateHash = (hash: string, startLength: number = 4, endLength: number = 4): string => {
     if (!hash) return ""
     if (hash.length <= startLength + endLength) return hash
 

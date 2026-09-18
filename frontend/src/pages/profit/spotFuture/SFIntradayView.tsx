@@ -173,7 +173,17 @@ export const SF_ProfitIntradayView: FC<{ profit: spotFutureProfitResponse[] }> =
             key: "UUID",
             ellipsis: true,
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+                return (
+                    <div className=" max-w-[12em] justify-self-end truncate">
+                        {" "}
+                        <Text
+                            copyable={{ text: id }} // Copies the ACTUAL full ID, not the visual text
+                            style={{ maxWidth: "100%" }}
+                        >
+                            {truncateHash(id)}
+                        </Text>
+                    </div>
+                )
             },
             width: "5%",
             hidden: breakpoint,
@@ -196,7 +206,17 @@ export const SF_ProfitIntradayView: FC<{ profit: spotFutureProfitResponse[] }> =
 
             sortDirections: ["descend", "ascend"],
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+                return (
+                    <div className=" max-w-[12em] justify-self-end truncate">
+                        {" "}
+                        <Text
+                            copyable={{ text: id }} // Copies the ACTUAL full ID, not the visual text
+                            style={{ maxWidth: "100%" }}
+                        >
+                            {truncateHash(id)}
+                        </Text>
+                    </div>
+                )
             },
             align: "end",
             width: "5%",
@@ -220,7 +240,17 @@ export const SF_ProfitIntradayView: FC<{ profit: spotFutureProfitResponse[] }> =
             align: "end",
 
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+                return (
+                    <div className=" max-w-[12em] justify-self-end truncate">
+                        {" "}
+                        <Text
+                            copyable={{ text: id }} // Copies the ACTUAL full ID, not the visual text
+                            style={{ maxWidth: "100%" }}
+                        >
+                            {truncateHash(id)}
+                        </Text>
+                    </div>
+                )
             },
             width: "5%",
             hidden: breakpoint,

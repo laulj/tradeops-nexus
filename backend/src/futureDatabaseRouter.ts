@@ -576,7 +576,7 @@ spotFutureDataRouter.post("/profits-details/pairing/batch", async (req: Request,
 
     // ── Pagination parameters ──────────────────────────────────────────────
     const page = Math.max(1, parseInt(req.body.page) || 1)
-    const limit = Math.min(500, parseInt(req.body.limit) || 50) 
+    const limit = Math.min(500, parseInt(req.body.limit) || 50)
     const offset = (page - 1) * limit
     // Callers that only need the size of the result set (the dashboard's
     // "Total tx." tile) can skip the row query entirely: the total comes from a
@@ -627,7 +627,7 @@ spotFutureDataRouter.post("/profits-details/pairing/batch", async (req: Request,
     // console.log("params: ", params)
     const cacheKey = generateCacheKey(params) + (countOnly ? ":count" : "")
     const cached = aggCache.get(cacheKey)
-    if (cached) console.log("spotFutureDataRouter -- returning cache", cached)
+    // if (cached) console.log("spotFutureDataRouter -- returning cache", cached)
     if (cached) return res.status(200).json(cached)
 
     // ── 3. Run queries for each pairing in parallel ──────────────────────
@@ -822,7 +822,7 @@ spotFutureDataRouter.post("/profits-details/pairing/aggregated/batch", async (re
     const usePagination = req.body.page && req.body.page != undefined ? true : false
     // ── Pagination parameters ──────────────────────────────────────────────
     const page = Math.max(1, parseInt(usePagination ? req.body.page : 1) || 1)
-    const limit = Math.min(500, parseInt(usePagination ? req.body.limit : 50) || 50) 
+    const limit = Math.min(500, parseInt(usePagination ? req.body.limit : 50) || 50)
     const offset = (page - 1) * limit
 
     // ── Timestamp filters (optional) ──────────────────────────────────────

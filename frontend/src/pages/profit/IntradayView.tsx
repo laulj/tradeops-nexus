@@ -152,8 +152,18 @@ export const ProfitIntradayView: FC<{
             sortDirections: ["descend", "ascend"],
             align: "end",
             width: 50,
+
             render: (orderId: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(orderId)}</div>
+                return (
+                    <div aria-valuetext={orderId} className=" max-w-[12em] justify-self-end">
+                        <Text
+                            copyable={{ text: orderId }} // Copies the ACTUAL full ID, not the visual text
+                            style={{ maxWidth: "100%" }}
+                        >
+                            {truncateHash(orderId)}
+                        </Text>
+                    </div>
+                )
             },
         },
         {
@@ -164,7 +174,16 @@ export const ProfitIntradayView: FC<{
             align: "end",
             ...getColumnSearchProps("txHash"),
             render: (txHash: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(txHash)}</div>
+                return (
+                    <div className=" max-w-[12em] justify-self-end ">
+                        <Text
+                            copyable={{ text: txHash }} // Copies the ACTUAL full ID, not the visual text
+                            style={{ maxWidth: "100%" }}
+                        >
+                            {truncateHash(txHash)}
+                        </Text>
+                    </div>
+                )
             },
             width: 50,
         },

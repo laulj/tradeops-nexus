@@ -12,7 +12,7 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
     const [searchText, setSearchText] = useState("")
     const screens = useBreakpoint()
     const isMobile = !screens.md // or xs
-    console.log("FR", profit)
+    // console.log("FR", profit)
     const breakpoint = screens.xl
 
     const myProfits = useMemo(() => {
@@ -179,7 +179,16 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             key: "UUID",
             ellipsis: true,
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+                return (
+                    <div className=" max-w-[12em] justify-self-end truncate">
+                        <Text
+                            copyable={{ text: id }} // Copies the ACTUAL full ID, not the visual text
+                            style={{ maxWidth: "100%" }}
+                        >
+                            {truncateHash(id)}
+                        </Text>
+                    </div>
+                )
             },
             width: "5%",
             hidden: !breakpoint,
@@ -200,7 +209,17 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             key: "ex1OrderId",
             ellipsis: true,
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+                return (
+                    <div className=" max-w-[12em] justify-self-end truncate">
+                        {" "}
+                        <Text
+                            copyable={{ text: id }} // Copies the ACTUAL full ID, not the visual text
+                            style={{ maxWidth: "100%" }}
+                        >
+                            {truncateHash(id)}
+                        </Text>
+                    </div>
+                )
             },
             sortDirections: ["descend", "ascend"],
             align: "end",
@@ -254,7 +273,17 @@ export const FR_ProfitIntradayView: FC<{ profit: fundingRateProfitResponse[] }> 
             ellipsis: true,
             align: "end",
             render: (id: string) => {
-                return <div className=" max-w-[12em] justify-self-end truncate">{truncateHash(id)}</div>
+                return (
+                    <div className=" max-w-[12em] justify-self-end truncate">
+                        {" "}
+                        <Text
+                            copyable={{ text: id }} // Copies the ACTUAL full ID, not the visual text
+                            style={{ maxWidth: "100%" }}
+                        >
+                            {truncateHash(id)}
+                        </Text>
+                    </div>
+                )
             },
             width: "5%",
             hidden: !breakpoint,

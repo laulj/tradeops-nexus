@@ -1,43 +1,43 @@
-import { theme as Theme, type GetProp, type ConfigProviderProps, type MenuTheme, type ThemeConfig } from "antd"
+import { theme as Theme, type MenuTheme, type ThemeConfig } from "antd"
 import { brand } from "./brand"
 
-type WaveConfig = GetProp<ConfigProviderProps, "wave">
+// type WaveConfig = GetProp<ConfigProviderProps, "wave">
 
-type ShakeEffectNode = HTMLElement & { effectTimeout?: number }
+// type ShakeEffectNode = HTMLElement & { effectTimeout?: number }
 
 // Shake Effect (Copied exactly)
-export const showShakeEffect: WaveConfig["showEffect"] = (node, { component }) => {
-    if (component !== "Button") {
-        return
-    }
+// export const showShakeEffect: WaveConfig["showEffect"] = (node, { component }) => {
+//     if (component !== "Button") {
+//         return
+//     }
 
-    const el = node as ShakeEffectNode
-    const seq = [0, -15, 15, -5, 5, 0]
-    const itv = 10
-    let steps = 0
+//     const el = node as ShakeEffectNode
+//     const seq = [0, -5, 5, -5, 5, 0]
+//     const itv = 10
+//     let steps = 0
 
-    function loop() {
-        cancelAnimationFrame(el.effectTimeout!)
-        el.effectTimeout = requestAnimationFrame(() => {
-            const currentStep = Math.floor(steps / itv)
-            const current = seq[currentStep]
-            const next = seq[currentStep + 1]
+//     function loop() {
+//         cancelAnimationFrame(el.effectTimeout!)
+//         el.effectTimeout = requestAnimationFrame(() => {
+//             const currentStep = Math.floor(steps / itv)
+//             const current = seq[currentStep]
+//             const next = seq[currentStep + 1]
 
-            if (!next) {
-                el.style.transform = ""
-                el.style.transition = ""
-                return
-            }
+//             if (!next) {
+//                 el.style.transform = ""
+//                 el.style.transition = ""
+//                 return
+//             }
 
-            const angle = current + ((next - current) / itv) * (steps % itv)
-            el.style.transform = `rotate(${angle}deg)`
-            el.style.transition = "none"
-            steps += 1
-            loop()
-        })
-    }
-    loop()
-}
+//             const angle = current + ((next - current) / itv) * (steps % itv)
+//             el.style.transform = `rotate(${angle}deg)`
+//             el.style.transition = "none"
+//             steps += 1
+//             loop()
+//         })
+//     }
+//     loop()
+// }
 
 export const createThemeConfig = (theme: MenuTheme): ThemeConfig => {
     const baseConfig: ThemeConfig = {

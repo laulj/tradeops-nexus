@@ -415,7 +415,13 @@ export const Profit: FC<{
             <div>
                 <Splitter
                     // Essential: The splitter needs a height to distribute space vertically
-                    style={{ ...style, height: "calc(100vh - 250px)" }}
+                    style={{
+                        ...style,
+                        // height: "calc(100vh - 150px)",
+                        height: "95vh",
+                        // minHeight: "calc(100vh - 250px)",
+                        // maxHeight: "90vh",
+                    }}
                     onResizeEnd={(sizes) => {
                         localStorage.setItem(SPLITTER_SIZES, JSON.stringify(sizes))
                     }}
@@ -423,13 +429,14 @@ export const Profit: FC<{
                 >
                     <Splitter.Panel
                         collapsible={{ start: true, end: true, showCollapsibleIcon: true }}
-                        defaultSize={JSON.parse(localStorage.getItem(SPLITTER_SIZES) ?? '["40%", "60%"]')[0]}
+                        defaultSize={JSON.parse(localStorage.getItem(SPLITTER_SIZES) ?? '["30%", "70%"]')[0]}
+                        style={{ overflow: "hidden" }}
                     >
                         {TableFormFilters}
                     </Splitter.Panel>
                     <Splitter.Panel
                         collapsible={{ start: true, end: true, showCollapsibleIcon: true }}
-                        defaultSize={JSON.parse(localStorage.getItem(SPLITTER_SIZES) ?? '["40%", "60%"]')[1]}
+                        defaultSize={JSON.parse(localStorage.getItem(SPLITTER_SIZES) ?? '["30%", "70%"]')[1]}
                     >
                         <div className="pt-5">{getTable(viewType)}</div>
                     </Splitter.Panel>

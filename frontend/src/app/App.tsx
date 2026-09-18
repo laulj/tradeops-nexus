@@ -6,7 +6,7 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { ThemeContext, UserContext } from "./contexts"
 import { queryClient } from "./queryClient"
-import { createThemeConfig, showShakeEffect } from "./theme"
+import { createThemeConfig } from "./theme"
 import { getCurrentPath, isLoginPath } from "./navigation"
 import { applyThemeMode, resolveThemeMode } from "./themeMode"
 import "@/App.css"
@@ -59,7 +59,6 @@ export const App = () => {
             setTheme(mode)
         }
         darkThemeMq.addEventListener("change", mqListener)
-
         ;(async () => {
             const token = localStorage.getItem("accessToken")
             if (token) {
@@ -163,5 +162,10 @@ export const App = () => {
             </ConfigProvider>
         </QueryClientProvider>
     )
-    return <Wrapper name="Shake" showEffect={showShakeEffect} />
+    return (
+        <Wrapper
+            name="Shake"
+            // showEffect={showShakeEffect}
+        />
+    )
 }

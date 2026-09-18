@@ -4382,7 +4382,7 @@ fundingRateDataRouter.post("/profits-details/pairing/batch", async (req: Request
         // ── Pagination parameters ──────────────────────────────────────────────
         const page = Math.max(1, parseInt(req.body.page) || 1)
         const limit = Math.min(100, parseInt(req.body.limit) || 50)
-    const offset = (page - 1) * limit
+        const offset = (page - 1) * limit
         // Callers that only need the size of the result set (the dashboard's
         // "Total tx." tile) can skip the row query entirely: the total comes from a
         // standalone COUNT(*), so the join plus the ORDER BY never have to run.
