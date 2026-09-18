@@ -2,6 +2,7 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
+        <meta name="google-site-verification" content="LGBimBYhkDX6pDYqJskZcgCs5gHCzTnEM15VpUA6dZQ" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta
@@ -36,15 +37,20 @@
             // Pre-paint theme bootstrap: set the theme class before first paint so
             // light-mode `nexus.*` surfaces apply immediately (no dark flash), and a
             // saved explicit choice always wins over the OS preference.
-            (function () {
+            ;(function () {
                 try {
-                    var stored = localStorage.getItem("theme");
-                    var mode = stored === "light" || stored === "dark" ? stored : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-                    document.body.classList.add(mode === "dark" ? "dark-theme" : "light");
-                    document.documentElement.setAttribute("data-theme", mode);
-                    document.documentElement.style.colorScheme = mode;
+                    var stored = localStorage.getItem("theme")
+                    var mode =
+                        stored === "light" || stored === "dark"
+                            ? stored
+                            : window.matchMedia("(prefers-color-scheme: dark)").matches
+                              ? "dark"
+                              : "light"
+                    document.body.classList.add(mode === "dark" ? "dark-theme" : "light")
+                    document.documentElement.setAttribute("data-theme", mode)
+                    document.documentElement.style.colorScheme = mode
                 } catch (e) {}
-            })();
+            })()
         </script>
         <div id="root"></div>
         <script type="module" src="/src/main.tsx"></script>
